@@ -28,31 +28,96 @@ except Exception:
     supabase = None
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
+# Инициализация Groq
+try:
+    from groq import Groq
+    groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+except ImportError:
+    groq_client = None
+    logger.warning("Groq library not installed")
+except Exception as e:
+    groq_client = None
+    logger.warning(f"Groq init error: {e}")
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 
 # ---------------------------
-#  Модели (список для выбора)
+#  Модели (с префиксами провайдеров)
 # ---------------------------
 AVAILABLE_MODELS = [
-    "google/gemma-4-26b-a4b-it:free",
-    "tencent/hy3:free",
-    "qwen/qwen3-coder:free",
-    "nvidia/nemotron-3-ultra-550b-a55b:free",
+    # OpenRouter
+    "openrouter:google/gemma-4-26b-a4b-it:free",
+    "openrouter:tencent/hy3:free",
+    "openrouter:qwen/qwen3-coder:free",
+    "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free",
+    # Groq (если доступен)
+    "groq:qwen/qwen3-32b",
+    "groq:llama-3.3-70b-versatile",
+    "groq:mixtral-8x7b-32768",
 ]
 
 # ---------------------------
-#  Функция вызова модели с fallback (новая логика)
+#  Функции вызова провайдеров
+# ---------------------------
+def call_openrouter(model: str, messages: list, timeout: int = 15):
+    """Вызов OpenRouter API"""
+    response = requests.post(
+        "https://openrouter.ai/api/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://dalvideo.ru",
+            "X-Title": "KVG AI Studio"
+        },
+        json={"model": model, "messages": messages},
+        timeout=timeout
+    )
+    response.raise_for_status()
+    data = response.json()
+    if "choices" in data and len(data["choices"]) > 0:
+        return data["choices"][0]["message"]["content"]
+    return None
+
+def call_groq(model: str, messages: list, timeout: int = 15):
+    """Вызов Groq API"""
+    if not groq_client:
+        raise Exception("Groq client not available")
+    
+    # Преобразуем messages в формат Groq
+    groq_messages = [{"role": m["role"], "content": m["content"]} for m in messages]
+    
+    # Для Groq нужен stream=False для таймаута, используем синхронный вызов
+    completion = groq_client.chat.completions.create(
+        model=model,
+        messages=groq_messages,
+        temperature=0.6,
+        max_tokens=4096,
+        top_p=0.95,
+        timeout=timeout
+    )
+    if completion.choices and len(completion.choices) > 0:
+        return completion.choices[0].message.content
+    return None
+
+# ---------------------------
+#  Основная функция с fallback
 # ---------------------------
 def call_model_with_fallback(messages, primary_model):
+    # Список моделей с приоритетом: сначала выбранная пользователем
+    # Убираем дубликаты, сохраняя порядок
     MODELS = [
         primary_model,
-        "qwen/qwen3-coder:free",
-        "tencent/hy3:free",
-        "google/gemma-4-26b-a4b-it:free",
-        "nvidia/nemotron-3-ultra-550b-a55b:free",
-        "google/gemma-4-26b-a4b-it",  # платная
+        "openrouter:qwen/qwen3-coder:free",
+        "openrouter:tencent/hy3:free",
+        "openrouter:google/gemma-4-26b-a4b-it:free",
+        "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free",
+        "groq:qwen/qwen3-32b",
+        "groq:llama-3.3-70b-versatile",
+        "groq:mixtral-8x7b-32768",
+        "openrouter:google/gemma-4-26b-a4b-it",  # платная fallback
     ]
     # Убираем дубликаты
     seen = set()
@@ -68,50 +133,53 @@ def call_model_with_fallback(messages, primary_model):
     for attempt in range(max_attempts):
         logger.info(f"Attempt {attempt + 1}/{max_attempts}")
 
-        for model in unique_models:
+        for full_model in unique_models:
             try:
-                logger.info(f"Calling model: {model}")
-                response = requests.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                        "Content-Type": "application/json",
-                        "HTTP-Referer": "https://dalvideo.ru",
-                        "X-Title": "KVG AI Studio"
-                    },
-                    json={"model": model, "messages": messages},
-                    timeout=timeout
-                )
-                response.raise_for_status()
-                data = response.json()
+                # Разбираем провайдер и модель
+                if ":" in full_model:
+                    provider, model_name = full_model.split(":", 1)
+                else:
+                    provider = "openrouter"
+                    model_name = full_model
 
-                if "error" in data:
-                    err = data["error"]
-                    if err.get("code") == 429:
-                        logger.warning(f"Model {model} rate limited (429), trying next")
+                logger.info(f"Calling {provider}:{model_name}")
+
+                if provider == "openrouter":
+                    if not OPENROUTER_API_KEY:
+                        logger.warning("OpenRouter API key missing")
                         continue
-                    else:
-                        return f"❌ Ошибка модели {model}:\n{data}"
+                    content = call_openrouter(model_name, messages, timeout)
+                elif provider == "groq":
+                    if not groq_client:
+                        logger.warning("Groq client not available")
+                        continue
+                    content = call_groq(model_name, messages, timeout)
+                else:
+                    logger.warning(f"Unknown provider: {provider}")
+                    continue
 
-                if "choices" in data and len(data["choices"]) > 0:
-                    content = data["choices"][0]["message"]["content"]
-                    logger.info(f"Model {model} returned response")
+                if content:
+                    logger.info(f"Model {full_model} returned response")
                     return content
                 else:
-                    logger.warning(f"Model {model} returned no choices")
+                    logger.warning(f"Model {full_model} returned empty response")
                     continue
 
             except requests.exceptions.Timeout:
-                logger.warning(f"Model {model} timeout ({timeout}s), trying next")
+                logger.warning(f"Model {full_model} timeout ({timeout}s), trying next")
                 continue
             except requests.exceptions.RequestException as e:
-                logger.warning(f"Model {model} request error: {e}, trying next")
-                continue
+                # Проверяем, если это 429 (Too Many Requests)
+                if hasattr(e, 'response') and e.response is not None and e.response.status_code == 429:
+                    logger.warning(f"Model {full_model} rate limited (429), trying next")
+                    continue
+                else:
+                    logger.warning(f"Model {full_model} request error: {e}, trying next")
+                    continue
             except Exception as e:
-                logger.warning(f"Model {model} unexpected error: {e}, trying next")
+                logger.warning(f"Model {full_model} unexpected error: {e}, trying next")
                 continue
 
-        # Если после первого прохода все модели не сработали, делаем ещё один проход
         if attempt == 0:
             logger.info("Все модели не ответили на первой попытке, начинаем второй проход...")
 
@@ -121,7 +189,7 @@ def call_model_with_fallback(messages, primary_model):
     return error_msg
 
 # ---------------------------
-#  Вспомогательные функции
+#  Вспомогательные функции (без изменений)
 # ---------------------------
 def extract_zip_and_read(zip_file: UploadFile):
     temp_dir = tempfile.mkdtemp()
