@@ -1,29 +1,35 @@
 {% extends "layout.html" %}
 {% block content %}
 
-<div class="chat-wrapper">
+<div class="chat-container">
 
-    <div class="chat-window" id="chat_window">
+    <!-- Окно сообщений -->
+    <div class="messages" id="messages">
+        {% for msg in history %}
+            {% if msg.role == "user" %}
+                <div class="bubble bubble-user">
+                    <div class="bubble-text">{{ msg.content }}</div>
+                </div>
+            {% else %}
+                <div class="bubble bubble-ai">
+                    <div class="bubble-text">{{ msg.content }}</div>
+                </div>
+            {% endif %}
+        {% endfor %}
+
         {% if result %}
-            <div class="msg msg-user">
-                <div class="msg-body">{{ task }}</div>
+            <div class="bubble bubble-user">
+                <div class="bubble-text">{{ task }}</div>
             </div>
 
-            <div class="msg msg-ai">
-                <div class="msg-body">
-                    <pre>{{ result }}</pre>
-                </div>
-            </div>
-        {% else %}
-            <div class="msg msg-ai">
-                <div class="msg-body">
-                    Начни с описания задачи, прикрепи файл или ZIP проекта — AI‑Coder проанализирует и вернёт исправленный код.
-                </div>
+            <div class="bubble bubble-ai">
+                <div class="bubble-text"><pre>{{ result }}</pre></div>
             </div>
         {% endif %}
     </div>
 
-    <form class="chat-input-bar" action="/admin/ai-coder" method="post" enctype="multipart/form-data">
+    <!-- Нижняя панель ввода -->
+    <form class="input-bar" action="/admin/ai-coder" method="post" enctype="multipart/form-data">
         <input type="hidden" name="user_id" id="user_id_input" value="{{ user_id }}">
 
         <textarea name="task" class="input-text" placeholder="Напиши задачу..."></textarea>
@@ -31,11 +37,13 @@
         <div class="input-row">
             <input type="file" name="file">
             <input type="file" name="zip">
+
             <select name="model" class="model-select">
                 <option value="google/gemma-4-26b-a4b-it:free">Gemma 4 26B Free</option>
                 <option value="tencent/hy3:free">Hy3 Free</option>
                 <option value="qwen/qwen3-coder:free">Qwen3 Coder Free</option>
             </select>
+
             <button class="btn-send">Отправить</button>
         </div>
     </form>
@@ -43,9 +51,9 @@
 </div>
 
 <script>
-    // Авто‑скролл вниз
-    const chat = document.getElementById("chat_window");
-    chat.scrollTop = chat.scrollHeight;
+    // Автоскролл вниз
+    const msgBox = document.getElementById("messages");
+    msgBox.scrollTop = msgBox.scrollHeight;
 
     // Восстановление модели
     const select = document.querySelector(".model-select");
