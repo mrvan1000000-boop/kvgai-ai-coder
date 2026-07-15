@@ -33,14 +33,18 @@ templates = Jinja2Templates(directory="templates")
 #  GET — HTML страница
 # ---------------------------
 @router.get("/admin/ai-coder")
-def ai_coder_page(request: Request):
+def ai_coder_page(request: Request, user_id: str | None = None):
+    if not user_id:
+        user_id = str(uuid.uuid4())
+
     return templates.TemplateResponse("ai_coder.html", {
         "request": request,
-        "result": result,
-        "task": task,
-        "download": download_url,
+        "result": None,
+        "task": "",
+        "download": None,
         "user_id": user_id
     })
+
 
 
 # ---------------------------
@@ -226,13 +230,14 @@ async def ai_coder(
 
     download_url = f"/admin/ai-coder/download?path={fixed_zip_path}"
 
-    return templates.TemplateResponse("admin_ai_coder.html", {
-        "request": request,
-        "result": result,
-        "task": task,
-        "download": download_url,
-        "user_id": user_id
-    })
+    return templates.TemplateResponse("ai_coder.html", {
+    "request": request,
+    "result": result,
+    "task": task,
+    "download": download_url,
+    "user_id": user_id
+})
+
 
 
 # ---------------------------
