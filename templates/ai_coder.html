@@ -6,7 +6,7 @@
 
   <form method="post" enctype="multipart/form-data">
     <label>Задача</label>
-    <textarea name="task" class="input">{{ task }}</textarea>
+    <textarea name="task">{{ task }}</textarea>
 
     <label>Файл</label>
     <input type="file" name="file">
@@ -18,17 +18,16 @@
 
     <button class="button" type="submit">Отправить</button>
   </form>
-</div>
 
-{% if result %}
-<div class="card">
+  {% if result %}
+  <hr style="border: none; border-top: 1px solid #1f1f22; margin: 20px 0;">
   <div class="card-title">Результат</div>
-  <div class="card-body">{{ result }}</div>
+  <pre class="card-body">{{ result }}</pre>
 
   {% if download %}
   <a href="{{ download }}" class="button">Скачать ZIP</a>
   {% endif %}
+  {% endif %}
 </div>
-{% endif %}
 
 {% endblock %}
