@@ -33,23 +33,36 @@ router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 
 # ---------------------------
-#  Модели
+#  Модели (список для выбора)
 # ---------------------------
 AVAILABLE_MODELS = [
     "google/gemma-4-26b-a4b-it:free",
     "tencent/hy3:free",
     "qwen/qwen3-coder:free",
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
 ]
 
+# ---------------------------
+#  Функция вызова модели с fallback
+# ---------------------------
 def call_model_with_fallback(messages, primary_model):
+    # Список моделей для fallback (включая primary)
     MODELS = [
         primary_model,
         "qwen/qwen3-coder:free",
         "tencent/hy3:free",
-        "google/gemma-4-26b-a4b-it",  # платная fallback
+        "google/gemma-4-26b-a4b-it:free",
+        "nvidia/nemotron-3-ultra-550b-a55b:free",
     ]
-    
-    for model in MODELS:
+    # Убираем дубликаты, сохраняя порядок
+    seen = set()
+    unique_models = []
+    for m in MODELS:
+        if m not in seen:
+            seen.add(m)
+            unique_models.append(m)
+
+    for model in unique_models:
         try:
             logger.info(f"Calling model: {model}")
             response = requests.post(
@@ -63,9 +76,9 @@ def call_model_with_fallback(messages, primary_model):
                 json={"model": model, "messages": messages},
                 timeout=30  # таймаут на один запрос – 30 секунд
             )
-            response.raise_for_status()  # выбросит исключение при HTTP-ошибке
+            response.raise_for_status()
             data = response.json()
-            
+
             if "error" in data:
                 err = data["error"]
                 if err.get("code") == 429:
@@ -73,7 +86,7 @@ def call_model_with_fallback(messages, primary_model):
                     continue
                 else:
                     return f"❌ Ошибка модели {model}:\n{data}"
-            
+
             if "choices" in data and len(data["choices"]) > 0:
                 content = data["choices"][0]["message"]["content"]
                 logger.info(f"Model {model} returned response")
@@ -81,7 +94,7 @@ def call_model_with_fallback(messages, primary_model):
             else:
                 logger.warning(f"Model {model} returned no choices")
                 continue
-                
+
         except requests.exceptions.Timeout:
             logger.warning(f"Model {model} timeout, trying next")
             continue
@@ -91,7 +104,7 @@ def call_model_with_fallback(messages, primary_model):
         except Exception as e:
             logger.warning(f"Model {model} unexpected error: {e}, trying next")
             continue
-    
+
     return "❌ Все модели недоступны. Попробуйте позже."
 
 # ---------------------------
@@ -188,7 +201,9 @@ def ai_coder_page(request: Request, user_id: str | None = None):
         "result": None,
         "task": "",
         "download": None,
-        "user_id": user_id
+        "user_id": user_id,
+        "available_models": AVAILABLE_MODELS,
+        "selected_model": AVAILABLE_MODELS[0]  # по умолчанию первая
     })
 
 # ========== POST /admin/ai-coder (синхронный) ==========
@@ -198,12 +213,19 @@ async def ai_coder(
     task: str = Form(...),
     file: UploadFile = File(None),
     model: str = Form(None),
+    custom_model: str = Form(None),
     user_id: str = Form(None)
 ):
     if not user_id:
         user_id = str(uuid.uuid4())
-    if not model:
-        model = AVAILABLE_MODELS[0]
+
+    # Определяем модель
+    if model == "custom" and custom_model:
+        selected_model = custom_model
+    elif model in AVAILABLE_MODELS:
+        selected_model = model
+    else:
+        selected_model = AVAILABLE_MODELS[0]
 
     file_contents = ""
     zip_contents = {}
@@ -234,7 +256,7 @@ async def ai_coder(
         )
     }
     messages = history + [current_message]
-    result = call_model_with_fallback(messages, model)
+    result = call_model_with_fallback(messages, selected_model)
     save_message(user_id, "user", current_message["content"])
     save_message(user_id, "assistant", result)
     save_history(user_id, task, file_name if not is_zip else "", file_name if is_zip else "", result)
@@ -248,7 +270,10 @@ async def ai_coder(
         "result": result,
         "task": task,
         "download": download_url,
-        "user_id": user_id
+        "user_id": user_id,
+        "available_models": AVAILABLE_MODELS,
+        "selected_model": selected_model,
+        "custom_model": custom_model if model == "custom" else ""
     })
 
 # ========== API для AJAX (асинхронный) ==========
@@ -257,13 +282,20 @@ async def ai_coder_api(
     task: str = Form(...),
     file: UploadFile = File(None),
     model: str = Form(None),
+    custom_model: str = Form(None),
     user_id: str = Form(None)
 ):
     try:
         if not user_id:
             user_id = str(uuid.uuid4())
-        if not model:
-            model = AVAILABLE_MODELS[0]
+
+        # Определяем модель
+        if model == "custom" and custom_model:
+            selected_model = custom_model
+        elif model in AVAILABLE_MODELS:
+            selected_model = model
+        else:
+            selected_model = AVAILABLE_MODELS[0]
 
         file_contents = ""
         zip_contents = {}
@@ -294,12 +326,11 @@ async def ai_coder_api(
             )
         }
         messages = history + [current_message]
-        result = call_model_with_fallback(messages, model)
-        
-        # Проверяем, не вернулась ли ошибка
+        result = call_model_with_fallback(messages, selected_model)
+
         if result.startswith("❌"):
             return JSONResponse({"error": result}, status_code=500)
-        
+
         save_message(user_id, "user", current_message["content"])
         save_message(user_id, "assistant", result)
         save_history(user_id, task, file_name if not is_zip else "", file_name if is_zip else "", result)
