@@ -62,16 +62,14 @@
 
         <!-- Блок выбора модели -->
         <div class="model-selector">
-            <label for="modelSelect"><i class="fas fa-cube"></i> Модель:</label>
-            <select id="modelSelect">
-                {% for m in models %}
-                    <option value="{{ m }}">{{ m }}</option>
+            <label for="modelSelect"><i class="fas fa-microchip"></i> Модель:</label>
+            <select id="modelSelect" name="model">
+                {% for m in available_models %}
+                    <option value="{{ m }}" {% if m == selected_model %}selected{% endif %}>{{ m }}</option>
                 {% endfor %}
-                <option value="custom">✨ Своя модель</option>
+                <option value="custom" {% if selected_model not in available_models %}selected{% endif %}>Своя модель</option>
             </select>
-            <div id="customModelContainer" style="display: none; margin-top: 6px;">
-                <input type="text" id="customModelInput" placeholder="например: meta-llama/llama-3.1-70b-instruct:free" style="width: 100%; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-input); color: var(--text-primary);">
-            </div>
+            <input type="text" id="customModelInput" name="custom_model" placeholder="Введите название модели" value="{{ custom_model if custom_model else '' }}" style="display: {% if selected_model not in available_models %}inline-block{% else %}none{% endif %};">
         </div>
 
         <div class="form-actions" id="formActions">
@@ -359,5 +357,9 @@
             if (stored) input.value = stored;
         }
     })();
+    document.getElementById('modelSelect').addEventListener('change', function() {
+        const customInput = document.getElementById('customModelInput');
+        customInput.style.display = this.value === 'custom' ? 'inline-block' : 'none';
+    });
 </script>
 {% endblock %}
