@@ -5,9 +5,9 @@
   <div class="card-title">История запросов</div>
 
   {% for item in items %}
-  <a href="/admin/ai-coder/history/item/{{ item.id }}" class="nav-item">
-    {{ item.created_at }} — {{ item.task[:60] }}...
-  </a>
+    <a href="/admin/ai-coder/history/item/{{ item.id }}" class="history-item">
+      {{ item.created_at }} — {{ item.task[:80] }}...
+    </a>
   {% endfor %}
 </div>
 
