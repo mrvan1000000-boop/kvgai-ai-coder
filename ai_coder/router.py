@@ -90,7 +90,6 @@ def extract_zip_and_read(zip_file: UploadFile):
         shutil.copyfileobj(zip_file.file, f)
 
     files_data = {}
-
     with zipfile.ZipFile(zip_path, "r") as zip_ref:
         zip_ref.extractall(temp_dir)
 
@@ -98,18 +97,12 @@ def extract_zip_and_read(zip_file: UploadFile):
         for filename in files:
             full_path = os.path.join(root, filename)
             relative_path = os.path.relpath(full_path, temp_dir)
-
-            mime, _ = mimetypes.guess_type(full_path)
-
-            # текстовые файлы читаем
-            if mime and mime.startswith("text"):
+            try:
                 with open(full_path, "r", encoding="utf-8") as f:
                     content = f.read()
-            else:
-                content = f"<binary file: {relative_path}>"
-            
+            except Exception:
+                continue
             files_data[relative_path] = content
-
 
     return files_data
 
