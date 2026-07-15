@@ -91,6 +91,7 @@
         if (this.files.length > 0) {
             fileNames.textContent = this.files[0].name;
             filePreview.style.display = 'flex';
+            console.log('📎 Файл выбран:', this.files[0].name);
         } else {
             filePreview.style.display = 'none';
         }
@@ -99,6 +100,7 @@
     function clearFiles() {
         fileInput.value = '';
         filePreview.style.display = 'none';
+        console.log('🗑️ Файлы очищены');
     }
 
     // ========================
@@ -112,7 +114,6 @@
     taskInput.style.height = 'auto';
     taskInput.style.height = taskInput.scrollHeight + 'px';
 
-    // Отправка по Ctrl+Enter
     taskInput.addEventListener('keydown', function(e) {
         if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
             document.getElementById('chatForm').dispatchEvent(new Event('submit'));
@@ -206,7 +207,6 @@
         contentDiv.appendChild(body);
         messageDiv.appendChild(contentDiv);
 
-        // Удаляем системное сообщение (если есть)
         const systemMsg = chatWindow.querySelector('.message-system');
         if (systemMsg) systemMsg.remove();
 
@@ -251,20 +251,21 @@
             return;
         }
 
-        // 1. СОБИРАЕМ FormData (ДО ОЧИСТКИ)
+        // ======= 1. СОБИРАЕМ FormData =======
         const formData = new FormData();
         formData.append('task', task);
         formData.append('user_id', document.getElementById('user_id_input').value || localStorage.getItem('kvg_ai_user_id') || '');
 
-        // Добавляем файл, если он есть
+        // Проверяем наличие файла
         if (fileInput.files.length > 0) {
-            formData.append('file', fileInput.files[0]);
-            console.log('✅ Файл добавлен:', fileInput.files[0].name);
+            const file = fileInput.files[0];
+            formData.append('file', file);
+            console.log('✅ Файл добавлен в FormData:', file.name, 'размер:', file.size, 'байт');
         } else {
-            console.warn('⚠️ Файл не выбран');
+            console.warn('⚠️ Файл НЕ выбран, отправляем только текст');
         }
 
-        // Добавляем модель
+        // Модель
         if (modelSelect) {
             const selectedModel = modelSelect.value;
             formData.append('model', selectedModel);
@@ -273,15 +274,15 @@
             }
         }
 
-        // 2. Добавляем сообщение пользователя в чат
+        // ======= 2. Добавляем сообщение в чат =======
         addMessage('user', task || '📎 Файл прикреплён');
 
-        // 3. Очищаем поля (после того, как всё добавили в FormData)
+        // ======= 3. Очищаем поля (ПОСЛЕ добавления в FormData) =======
         taskInput.value = '';
         taskInput.style.height = 'auto';
         clearFiles();
 
-        // 4. Показываем индикатор печатания
+        // ======= 4. Индикатор печатания =======
         addTypingIndicator();
 
         submitBtn.disabled = true;
