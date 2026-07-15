@@ -46,13 +46,14 @@ AVAILABLE_MODELS = [
 #  Функция вызова модели с fallback
 # ---------------------------
 def call_model_with_fallback(messages, primary_model):
-    # Список моделей для fallback (включая primary)
+    # Список моделей для fallback (включая primary и платную)
     MODELS = [
         primary_model,
         "qwen/qwen3-coder:free",
         "tencent/hy3:free",
         "google/gemma-4-26b-a4b-it:free",
         "nvidia/nemotron-3-ultra-550b-a55b:free",
+        "google/gemma-4-26b-a4b-it",  # платная версия (без :free)
     ]
     # Убираем дубликаты, сохраняя порядок
     seen = set()
@@ -61,6 +62,8 @@ def call_model_with_fallback(messages, primary_model):
         if m not in seen:
             seen.add(m)
             unique_models.append(m)
+
+    last_error = None
 
     for model in unique_models:
         try:
@@ -74,7 +77,7 @@ def call_model_with_fallback(messages, primary_model):
                     "X-Title": "KVG AI Studio"
                 },
                 json={"model": model, "messages": messages},
-                timeout=30  # таймаут на один запрос – 30 секунд
+                timeout=60  # таймаут на один запрос – 60 секунд
             )
             response.raise_for_status()
             data = response.json()
@@ -97,15 +100,21 @@ def call_model_with_fallback(messages, primary_model):
 
         except requests.exceptions.Timeout:
             logger.warning(f"Model {model} timeout, trying next")
+            last_error = "Timeout"
             continue
         except requests.exceptions.RequestException as e:
             logger.warning(f"Model {model} request error: {e}, trying next")
+            last_error = str(e)
             continue
         except Exception as e:
             logger.warning(f"Model {model} unexpected error: {e}, trying next")
+            last_error = str(e)
             continue
 
-    return "❌ Все модели недоступны. Попробуйте позже."
+    # Если все модели не сработали
+    error_msg = f"❌ Все модели недоступны. Последняя ошибка: {last_error}" if last_error else "❌ Все модели недоступны. Попробуйте позже."
+    logger.error(error_msg)
+    return error_msg
 
 # ---------------------------
 #  Вспомогательные функции
@@ -203,7 +212,7 @@ def ai_coder_page(request: Request, user_id: str | None = None):
         "download": None,
         "user_id": user_id,
         "available_models": AVAILABLE_MODELS,
-        "selected_model": AVAILABLE_MODELS[0]  # по умолчанию первая
+        "selected_model": AVAILABLE_MODELS[0]
     })
 
 # ========== POST /admin/ai-coder (синхронный) ==========
@@ -329,6 +338,7 @@ async def ai_coder_api(
         result = call_model_with_fallback(messages, selected_model)
 
         if result.startswith("❌"):
+            logger.error(f"Returning error to client: {result}")
             return JSONResponse({"error": result}, status_code=500)
 
         save_message(user_id, "user", current_message["content"])
