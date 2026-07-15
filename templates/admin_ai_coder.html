@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>AI-Coder помощник</title>
+    <style>
+        body { font-family: sans-serif; max-width: 900px; margin: 40px auto; }
+        textarea { width: 100%; height: 120px; }
+        .block { margin-bottom: 20px; }
+        #result { white-space: pre-wrap; border: 1px solid #ccc; padding: 10px; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <h1>AI-Coder помощник</h1>
+    <p>Загрузи файл или ZIP проекта, опиши задачу — нейросеть поможет с кодом.</p>
+
+    <div class="block">
+        <label>Задача:</label><br>
+        <textarea id="task" placeholder="Например: найди ошибки в коде, оптимизируй функцию, перепиши модуль..."></textarea>
+    </div>
+
+    <div class="block">
+        <label>Файл кода:</label><br>
+        <input type="file" id="file">
+    </div>
+
+    <div class="block">
+        <label>ZIP проекта:</label><br>
+        <input type="file" id="zip">
+    </div>
+
+    <div class="block">
+        <button onclick="sendToAICoder()">Отправить</button>
+    </div>
+
+    <div class="block">
+        <h2>Результат</h2>
+        <div id="result"></div>
+        <a id="download" href="#" style="display:none;" download>Скачать результат</a>
+    </div>
+
+    <script>
+        async function sendToAICoder() {
+            const formData = new FormData();
+            const task = document.getElementById("task").value;
+            const file = document.getElementById("file").files[0];
+            const zip = document.getElementById("zip").files[0];
+
+            formData.append("task", task);
+            if (file) formData.append("file", file);
+            if (zip) formData.append("zip_file", zip);
+
+            const response = await fetch("/admin/ai-coder", {
+                method: "POST",
+                body: formData
+            });
+
+            const data = await response.json();
+            document.getElementById("result").innerText = data.result;
+
+            const downloadLink = document.getElementById("download");
+            downloadLink.href = data.download;
+            downloadLink.style.display = "inline-block";
+        }
+    </script>
+</body>
+</html>
