@@ -2,20 +2,31 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>KVG AI Studio — AI‑Coder</title>
+    <!-- Font Awesome 6 (free) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <!-- Highlight.js для подсветки кода -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <script>hljs.highlightAll();</script>
     <link rel="stylesheet" href="/static/ai_coder.css">
 </head>
 <body class="app">
 <div class="app-shell">
     <aside class="sidebar">
-        <div class="sidebar-header">
+        <div class="logo-block">
             <div class="logo">KVG AI Studio</div>
-            <div class="subtitle">AI‑Coder</div>
+            <div class="subtitle"><i class="fas fa-code"></i> AI‑Coder</div>
         </div>
 
         <nav class="sidebar-nav">
-            <a href="/admin/ai-coder?user_id={{ user_id }}" class="nav-item">Диалог</a>
-            <a href="/admin/ai-coder/history/{{ user_id }}" class="nav-item">История задач</a>
+            <a href="/admin/ai-coder?user_id={{ user_id }}" class="nav-item {% if request.url.path == '/admin/ai-coder' %}active{% endif %}">
+                <i class="fas fa-comment-dots"></i> Диалог
+            </a>
+            <a href="/admin/ai-coder/history/{{ user_id }}" class="nav-item {% if request.url.path.startswith('/admin/ai-coder/history') %}active{% endif %}">
+                <i class="fas fa-clock-rotate-left"></i> История
+            </a>
         </nav>
 
         <div class="sidebar-footer">
@@ -35,13 +46,20 @@
 </div>
 
 <script>
-    // сохраняем user_id в localStorage, чтобы не забывать пользователя
+    // Сохраняем user_id
     (function() {
         const uid = "{{ user_id }}";
         if (uid && uid !== "None") {
             localStorage.setItem("kvg_ai_user_id", uid);
         }
     })();
+
+    // Переподсветка после динамической загрузки (для истории и ответов)
+    document.addEventListener('DOMContentLoaded', () => {
+        document.querySelectorAll('pre code').forEach((block) => {
+            hljs.highlightElement(block);
+        });
+    });
 </script>
 </body>
 </html>
