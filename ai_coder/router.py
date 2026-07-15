@@ -47,6 +47,7 @@ def ai_coder_page(request: Request, user_id: str | None = None):
 
 
 
+
 # ---------------------------
 #  Вызов модели OpenRouter
 # ---------------------------
@@ -248,12 +249,13 @@ def ai_coder_history(request: Request, user_id: str):
     if not supabase:
         return {"error": "Supabase не настроен"}
 
-    data = supabase.table("ai_coder_history").select("*").eq("user_id", user_id).order("created_at", desc=True).execute()
+    data = supabase.table("ai_coder_history").select("*").eq("user_id", user_id).order("created_at", {"ascending": False}).execute()
     return templates.TemplateResponse("ai_coder_history.html", {
         "request": request,
         "items": data.data,
         "user_id": user_id
     })
+
 
 
 # ---------------------------
