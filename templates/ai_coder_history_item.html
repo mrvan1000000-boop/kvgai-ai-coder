@@ -1,0 +1,19 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<div class="card">
+  <div class="card-title">Запрос</div>
+  <div class="card-body">
+    <strong>Дата:</strong> {{ item.created_at }}<br>
+    <strong>Задача:</strong> {{ item.task }}<br>
+    <strong>Файл:</strong> {{ item.file_names }}<br>
+    <strong>ZIP:</strong> {{ item.zip_files }}<br>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Ответ модели</div>
+  <pre class="card-body">{{ item.model_output }}</pre>
+</div>
+
+{% endblock %}
