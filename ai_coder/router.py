@@ -1,20 +1,33 @@
-import os
+from fastapi import APIRouter, Request, UploadFile, File, Form
+from fastapi.templating import Jinja2Templates
 import tempfile
-import zipfile
+import shutil
+import os
 import requests
-
-from fastapi import APIRouter, UploadFile, File, Form
-from fastapi.responses import FileResponse
-from dotenv import load_dotenv
-
-load_dotenv()
-
-router = APIRouter(prefix="/admin/ai-coder", tags=["AI-Coder"])
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
+router = APIRouter()
+templates = Jinja2Templates(directory="templates")
 
-def call_qwen(messages):
+
+# ---------------------------
+#  GET — HTML страница
+# ---------------------------
+@router.get("/admin/ai-coder")
+def ai_coder_page(request: Request):
+    return templates.TemplateResponse("admin_ai_coder.html", {
+        "request": request,
+        "result": None,
+        "task": "",
+        "download": None
+    })
+
+
+# ---------------------------
+#  Вызов модели OpenRouter
+# ---------------------------
+def call_model(messages):
     response = requests.post(
         "https://openrouter.ai/api/v1/chat/completions",
         headers={
@@ -31,7 +44,7 @@ def call_qwen(messages):
 
     data = response.json()
 
-    # Обработка ошибок
+    # Ошибка от OpenRouter
     if "error" in data:
         return f"❌ Ошибка OpenRouter:\n{data}"
 
@@ -41,81 +54,59 @@ def call_qwen(messages):
     return data["choices"][0]["message"]["content"]
 
 
-
-
-
-def read_uploaded_file(upload: UploadFile):
-    return upload.file.read().decode("utf-8")
-
-
-def extract_zip(upload: UploadFile):
-    temp_dir = tempfile.mkdtemp()
-    zip_path = os.path.join(temp_dir, "archive.zip")
-
-    with open(zip_path, "wb") as f:
-        f.write(upload.file.read())
-
-    with zipfile.ZipFile(zip_path, "r") as zip_ref:
-        zip_ref.extractall(temp_dir)
-
-    files = {}
-    for root, _, filenames in os.walk(temp_dir):
-        for name in filenames:
-            path = os.path.join(root, name)
-            rel_path = os.path.relpath(path, temp_dir)
-            try:
-                with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                    files[rel_path] = f.read()
-            except Exception:
-                continue
-
-    return files, temp_dir
-
-
-@router.post("")
+# ---------------------------
+#  POST — обработка формы
+# ---------------------------
+@router.post("/admin/ai-coder")
 async def ai_coder(
+    request: Request,
     task: str = Form(...),
     file: UploadFile = File(None),
-    zip_file: UploadFile = File(None)
+    zip: UploadFile = File(None)
 ):
-    context = ""
-    temp_dir = tempfile.mkdtemp()
+    temp_paths = []
 
+    # Обработка одиночного файла
     if file:
-        context = read_uploaded_file(file)
+        temp_file = tempfile.NamedTemporaryFile(delete=False)
+        shutil.copyfileobj(file.file, temp_file)
+        temp_paths.append(temp_file.name)
 
-    elif zip_file:
-        files, temp_dir = extract_zip(zip_file)
-        context = "\n\n".join([f"### {name}\n{content}" for name, content in files.items()])
+    # Обработка ZIP
+    if zip:
+        temp_zip = tempfile.NamedTemporaryFile(delete=False)
+        shutil.copyfileobj(zip.file, temp_zip)
+        temp_paths.append(temp_zip.name)
 
-    prompt = f"""
-Ты — Senior-разработчик.
-Проанализируй код и выполни задачу.
+    # Формируем сообщение для модели
+    messages = [
+        {
+            "role": "user",
+            "content": f"Task: {task}\nFiles: {temp_paths}"
+        }
+    ]
 
-Задача:
-{task}
+    result = call_model(messages)
 
-Контекст:
-{context}
+    # Сохраняем результат в файл
+    result_file = tempfile.NamedTemporaryFile(delete=False, suffix=".txt")
+    result_file.write(result.encode("utf-8"))
+    result_file.close()
 
-Если нужно — верни полный исправленный файл.
-Если задача требует нового файла — создай его полностью.
-"""
+    download_url = f"/admin/ai-coder/download?path={result_file.name}"
 
-    result = call_qwen([
-        {"role": "user", "content": prompt}
-    ])
-
-    output_path = os.path.join(temp_dir, "result.txt")
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write(result)
-
-    return {
+    return templates.TemplateResponse("admin_ai_coder.html", {
+        "request": request,
         "result": result,
-        "download": f"/admin/ai-coder/download?path={output_path}"
-    }
+        "task": task,
+        "download": download_url
+    })
 
 
-@router.get("/download")
+# ---------------------------
+#  Скачивание результата
+# ---------------------------
+@router.get("/admin/ai-coder/download")
 def download_file(path: str):
-    return FileResponse(path, filename=os.path.basename(path))
+    with open(path, "rb") as f:
+        return f.read()
