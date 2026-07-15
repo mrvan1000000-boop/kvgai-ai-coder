@@ -38,8 +38,8 @@ AVAILABLE_MODELS = [
 def call_model_with_fallback(messages, primary_model):
     MODELS = [
         primary_model,
-        "qwen/qwen2.5-coder",
-        "deepseek/deepseek-coder",
+        "qwen/qwen3-coder:free",
+        "tencent/hy3:free",
         "google/gemma-4-26b-a4b-it",  # платная fallback
     ]
 
