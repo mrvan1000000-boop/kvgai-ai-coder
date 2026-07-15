@@ -7,6 +7,19 @@ import requests
 import zipfile
 import uuid
 
+import mimetypes
+
+def safe_read_file(upload: UploadFile):
+    mime, _ = mimetypes.guess_type(upload.filename)
+
+    # Если текстовый файл — читаем
+    if mime and mime.startswith("text"):
+        return upload.file.read().decode("utf-8", errors="ignore")
+
+    # Если бинарный файл — не читаем
+    return f"<binary file: {upload.filename}>"
+
+
 # ---------------------------
 #  SUPABASE
 # ---------------------------
@@ -86,13 +99,17 @@ def extract_zip_and_read(zip_file: UploadFile):
             full_path = os.path.join(root, filename)
             relative_path = os.path.relpath(full_path, temp_dir)
 
-            try:
+            mime, _ = mimetypes.guess_type(full_path)
+
+            # текстовые файлы читаем
+            if mime and mime.startswith("text"):
                 with open(full_path, "r", encoding="utf-8") as f:
                     content = f.read()
-            except Exception:
-                continue
-
+            else:
+                content = f"<binary file: {relative_path}>"
+            
             files_data[relative_path] = content
+
 
     return files_data
 
@@ -207,7 +224,8 @@ async def ai_coder(
     zip_contents = {}
 
     if file:
-        file_contents = file.file.read().decode("utf-8", errors="ignore")
+        file_contents = safe_read_file(file)
+
 
     if zip and zip.filename:
         try:
