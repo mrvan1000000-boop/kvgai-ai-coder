@@ -11,9 +11,6 @@ router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 
 
-# ---------------------------
-#  GET — HTML страница
-# ---------------------------
 @router.get("/admin/ai-coder")
 def ai_coder_page(request: Request):
     return templates.TemplateResponse("admin_ai_coder.html", {
@@ -24,9 +21,6 @@ def ai_coder_page(request: Request):
     })
 
 
-# ---------------------------
-#  Вызов модели OpenRouter
-# ---------------------------
 def call_model(messages):
     response = requests.post(
         "https://openrouter.ai/api/v1/chat/completions",
@@ -44,7 +38,6 @@ def call_model(messages):
 
     data = response.json()
 
-    # Ошибка от OpenRouter
     if "error" in data:
         return f"❌ Ошибка OpenRouter:\n{data}"
 
@@ -54,9 +47,6 @@ def call_model(messages):
     return data["choices"][0]["message"]["content"]
 
 
-# ---------------------------
-#  POST — обработка формы
-# ---------------------------
 @router.post("/admin/ai-coder")
 async def ai_coder(
     request: Request,
@@ -64,31 +54,26 @@ async def ai_coder(
     file: UploadFile = File(None),
     zip: UploadFile = File(None)
 ):
-    temp_paths = []
+    file_contents = ""
+    zip_contents = ""
 
-    # Обработка одиночного файла
+    # Чтение одиночного файла
     if file:
-        temp_file = tempfile.NamedTemporaryFile(delete=False)
-        shutil.copyfileobj(file.file, temp_file)
-        temp_paths.append(temp_file.name)
+        file_contents = file.file.read().decode("utf-8", errors="ignore")
 
-    # Обработка ZIP
+    # Чтение ZIP как текст (позже сделаем распаковку)
     if zip:
-        temp_zip = tempfile.NamedTemporaryFile(delete=False)
-        shutil.copyfileobj(zip.file, temp_zip)
-        temp_paths.append(temp_zip.name)
+        zip_contents = zip.file.read().decode("utf-8", errors="ignore")
 
-    # Формируем сообщение для модели
     messages = [
         {
             "role": "user",
-            "content": f"Task: {task}\nFiles: {temp_paths}"
+            "content": f"Task: {task}\n\nFile contents:\n{file_contents}\n\nZIP contents:\n{zip_contents}"
         }
     ]
 
     result = call_model(messages)
 
-    # Сохраняем результат в файл
     result_file = tempfile.NamedTemporaryFile(delete=False, suffix=".txt")
     result_file.write(result.encode("utf-8"))
     result_file.close()
@@ -103,9 +88,6 @@ async def ai_coder(
     })
 
 
-# ---------------------------
-#  Скачивание результата
-# ---------------------------
 @router.get("/admin/ai-coder/download")
 def download_file(path: str):
     with open(path, "rb") as f:
