@@ -39,11 +39,11 @@
         {% endif %}
     </div>
 
-    <form class="chat-form" action="/admin/ai-coder" method="post" enctype="multipart/form-data" id="chatForm">
+    <form class="chat-form" id="chatForm" enctype="multipart/form-data">
         <input type="hidden" name="user_id" id="user_id_input" value="{{ user_id }}">
 
         <div class="input-area">
-            <textarea name="task" rows="1" placeholder="Опиши задачу или прикрепи файл..." id="taskInput">{{ task }}</textarea>
+            <textarea name="task" rows="1" placeholder="Опиши задачу или прикрепи файл..." id="taskInput"></textarea>
             <div class="input-actions">
                 <label class="file-attach-btn">
                     <i class="fas fa-paperclip"></i>
@@ -88,7 +88,6 @@
         this.style.height = 'auto';
         this.style.height = this.scrollHeight + 'px';
     });
-    // Инициализация
     taskInput.style.height = 'auto';
     taskInput.style.height = taskInput.scrollHeight + 'px';
 
@@ -106,11 +105,169 @@
         });
     };
 
-    // Индикатор загрузки при отправке
-    document.getElementById('chatForm').addEventListener('submit', function(e) {
-        const btn = document.getElementById('submitBtn');
-        btn.disabled = true;
-        btn.innerHTML = '<span class="spinner"></span>';
+    // ===== AJAX-отправка =====
+    const chatForm = document.getElementById('chatForm');
+    const chatWindow = document.getElementById('chatWindow');
+    const submitBtn = document.getElementById('submitBtn');
+
+    // Функция добавления сообщения в чат
+    function addMessage(role, content, isUser = false) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message message-${role}`;
+        const avatarIcon = role === 'user' ? 'user' : (role === 'assistant' ? 'robot' : 'info-circle');
+        const avatar = document.createElement('div');
+        avatar.className = 'message-avatar';
+        avatar.innerHTML = `<i class="fas fa-${avatarIcon}"></i>`;
+        messageDiv.appendChild(avatar);
+
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'message-content';
+        const label = document.createElement('div');
+        label.className = 'message-label';
+        label.textContent = role === 'user' ? 'Задача' : (role === 'assistant' ? 'Ответ AI‑Coder' : 'Система');
+        contentDiv.appendChild(label);
+
+        const body = document.createElement('div');
+        body.className = 'message-body';
+        if (role === 'assistant') {
+            const pre = document.createElement('pre');
+            const code = document.createElement('code');
+            code.className = 'language-plaintext';
+            code.textContent = content;
+            pre.appendChild(code);
+            body.appendChild(pre);
+
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'copy-btn';
+            copyBtn.innerHTML = '<i class="fas fa-copy"></i> Копировать';
+            copyBtn.onclick = function() { copyCode(this); };
+            pre.appendChild(copyBtn);
+
+            // Подсветка после добавления
+            setTimeout(() => {
+                hljs.highlightElement(code);
+            }, 50);
+        } else {
+            body.textContent = content;
+        }
+        contentDiv.appendChild(body);
+        messageDiv.appendChild(contentDiv);
+
+        // Удаляем системное сообщение, если оно есть
+        const systemMsg = chatWindow.querySelector('.message-system');
+        if (systemMsg) systemMsg.remove();
+
+        chatWindow.appendChild(messageDiv);
+        chatWindow.scrollTop = chatWindow.scrollHeight;
+    }
+
+    // Индикатор печатания
+    function addTypingIndicator() {
+        const typingDiv = document.createElement('div');
+        typingDiv.className = 'message message-assistant typing-indicator';
+        typingDiv.id = 'typingIndicator';
+        const avatar = document.createElement('div');
+        avatar.className = 'message-avatar';
+        avatar.innerHTML = '<i class="fas fa-robot"></i>';
+        typingDiv.appendChild(avatar);
+
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'message-content';
+        const body = document.createElement('div');
+        body.className = 'message-body';
+        body.innerHTML = `
+            <div class="typing-dots">
+                <span></span><span></span><span></span>
+            </div>
+        `;
+        contentDiv.appendChild(body);
+        typingDiv.appendChild(contentDiv);
+        chatWindow.appendChild(typingDiv);
+        chatWindow.scrollTop = chatWindow.scrollHeight;
+    }
+
+    function removeTypingIndicator() {
+        const indicator = document.getElementById('typingIndicator');
+        if (indicator) indicator.remove();
+    }
+
+    chatForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+
+        const task = taskInput.value.trim();
+        if (!task && !fileInput.files.length) {
+            // можно показать уведомление
+            return;
+        }
+
+        // Добавляем сообщение пользователя
+        addMessage('user', task || 'Файл прикреплён', true);
+        taskInput.value = '';
+        taskInput.style.height = 'auto';
+        // Очищаем файлы
+        clearFiles();
+
+        // Показываем индикатор печатания
+        addTypingIndicator();
+
+        // Собираем FormData
+        const formData = new FormData();
+        formData.append('task', task);
+        formData.append('user_id', document.getElementById('user_id_input').value);
+        if (fileInput.files.length) {
+            formData.append('file', fileInput.files[0]);
+        }
+
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<span class="spinner"></span>';
+
+        try {
+            const response = await fetch('/admin/ai-coder/api', {
+                method: 'POST',
+                body: formData
+            });
+            const data = await response.json();
+
+            // Удаляем индикатор
+            removeTypingIndicator();
+
+            if (data.result) {
+                addMessage('assistant', data.result);
+                // Обновляем кнопку скачивания, если есть
+                const downloadArea = document.querySelector('.form-actions .download-link');
+                if (data.download_url) {
+                    if (downloadArea) {
+                        downloadArea.href = data.download_url;
+                        downloadArea.style.display = 'inline-flex';
+                    } else {
+                        // Создаём новую кнопку
+                        const actionsDiv = document.querySelector('.form-actions');
+                        if (!actionsDiv) {
+                            const container = document.querySelector('.chat-form');
+                            const actions = document.createElement('div');
+                            actions.className = 'form-actions';
+                            container.appendChild(actions);
+                        }
+                        const newLink = document.createElement('a');
+                        newLink.className = 'btn btn-success download-link';
+                        newLink.href = data.download_url;
+                        newLink.innerHTML = '<i class="fas fa-download"></i> Скачать исправленный ZIP';
+                        document.querySelector('.form-actions').appendChild(newLink);
+                    }
+                }
+            } else {
+                addMessage('system', 'Ошибка получения ответа от сервера.');
+            }
+        } catch (error) {
+            removeTypingIndicator();
+            addMessage('system', 'Произошла ошибка соединения. Попробуйте позже.');
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="fas fa-arrow-up"></i>';
+        }
     });
+
+    // Инициализация: если есть результат из шаблона, он уже отображается, ничего не делаем.
+    // Но если мы хотим убрать системное сообщение при наличии ответа, оно уже скрыто.
 </script>
 {% endblock %}
