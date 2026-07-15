@@ -191,60 +191,59 @@ async def ai_coder(
         except zipfile.BadZipFile:
             zip_contents = {"error": "Файл не является ZIP-архивом"}
 
-    # Загружаем память сообщений
-history = load_messages(user_id)
-
-# Формируем текущее сообщение
-current_message = {
-    "role": "user",
-    "content": (
-        f"User ID: {user_id}\n"
-        f"Task: {task}\n\n"
-        f"Single file contents:\n{file_contents}\n\n"
-        f"ZIP project contents:\n" +
-        "\n".join(
-            f"--- {path} ---\n{content}\n"
-            for path, content in zip_contents.items()
-        ) +
-        "\n\n"
-        "Исправь ошибки, оптимизируй код и верни исправленные файлы "
-        "в формате:\n--- path/to/file.py ---\n<исправленный код>"
-    )
-}
-
-# Финальный контекст для модели
-messages = history + [current_message]
-
-# Вызов модели
-result = call_model(messages)
-
-# Сохраняем сообщения в память
-save_message(user_id, "user", current_message["content"])
-save_message(user_id, "assistant", result)
-
-# Сохраняем историю задач
-save_history(
-    user_id=user_id,
-    task=task,
-    file_names=file.filename if file else "",
-    zip_files=zip.filename if zip else "",
-    model_output=result
-)
-
-# Обработка ZIP
-fixed_files = parse_fixed_files(result)
-fixed_zip_path = create_fixed_zip(fixed_files)
-
-download_url = f"/admin/ai-coder/download?path={fixed_zip_path}"
-
-# Рендер страницы
-return templates.TemplateResponse("ai_coder.html", {
-    "request": request,
-    "result": result,
-    "task": task,
-    "download": download_url,
-    "user_id": user_id
-})
+        # Загружаем память сообщений
+        history = load_messages(user_id)
+    
+        # Формируем текущее сообщение
+        current_message = {
+            "role": "user",
+            "content": (
+                f"User ID: {user_id}\n"
+                f"Task: {task}\n\n"
+                f"Single file contents:\n{file_contents}\n\n"
+                f"ZIP project contents:\n" +
+                "\n".join(
+                    f"--- {path} ---\n{content}\n"
+                    for path, content in zip_contents.items()
+                ) +
+                "\n\n"
+                "Исправь ошибки, оптимизируй код и верни исправленные файлы "
+                "в формате:\n--- path/to/file.py ---\n<исправленный код>"
+            )
+        }
+    
+        # Финальный контекст для модели
+        messages = history + [current_message]
+    
+        # Вызов модели
+        result = call_model(messages)
+    
+        # Сохраняем сообщения в память
+        save_message(user_id, "user", current_message["content"])
+        save_message(user_id, "assistant", result)
+    
+        # Сохраняем историю задач
+        save_history(
+            user_id=user_id,
+            task=task,
+            file_names=file.filename if file else "",
+            zip_files=zip.filename if zip else "",
+            model_output=result
+        )
+    
+        # Обработка ZIP
+        fixed_files = parse_fixed_files(result)
+        fixed_zip_path = create_fixed_zip(fixed_files)
+    
+        download_url = f"/admin/ai-coder/download?path={fixed_zip_path}"
+    
+        return templates.TemplateResponse("ai_coder.html", {
+            "request": request,
+            "result": result,
+            "task": task,
+            "download": download_url,
+            "user_id": user_id
+        })
 
 
 
