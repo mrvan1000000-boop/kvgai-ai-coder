@@ -6,7 +6,13 @@ import os
 import requests
 import zipfile
 
+from supabase import create_client, Client
+
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -58,43 +64,87 @@ def call_model(messages):
 #  ZIP — распаковка и чтение всех файлов
 # ---------------------------
 def extract_zip_and_read(zip_file: UploadFile):
-    """
-    Распаковывает ZIP во временную директорию и возвращает словарь:
-    {
-        "path/inside/zip.py": "file contents...",
-        "folder/utils.py": "file contents..."
-    }
-    """
     temp_dir = tempfile.mkdtemp()
     zip_path = os.path.join(temp_dir, "uploaded.zip")
 
-    # Сохраняем ZIP во временный файл
     with open(zip_path, "wb") as f:
         shutil.copyfileobj(zip_file.file, f)
 
     files_data = {}
 
-    # Распаковка
     with zipfile.ZipFile(zip_path, "r") as zip_ref:
         zip_ref.extractall(temp_dir)
 
-    # Обход всех файлов внутри ZIP
     for root, dirs, files in os.walk(temp_dir):
         for filename in files:
             full_path = os.path.join(root, filename)
             relative_path = os.path.relpath(full_path, temp_dir)
 
-            # Пробуем прочитать как текст
             try:
                 with open(full_path, "r", encoding="utf-8") as f:
                     content = f.read()
             except:
-                # Бинарные файлы пропускаем
                 continue
 
             files_data[relative_path] = content
 
     return files_data
+
+
+# ---------------------------
+#  Парсер исправленных файлов из ответа модели
+# ---------------------------
+def parse_fixed_files(model_output: str):
+    fixed = {}
+    current_path = None
+    current_content = []
+
+    for line in model_output.splitlines():
+        if line.startswith("--- ") and line.endswith(" ---"):
+            if current_path:
+                fixed[current_path] = "\n".join(current_content)
+            current_path = line[4:-4].strip()
+            current_content = []
+        else:
+            if current_path:
+                current_content.append(line)
+
+    if current_path:
+        fixed[current_path] = "\n".join(current_content)
+
+    return fixed
+
+
+# ---------------------------
+#  Создание ZIP с исправленными файлами
+# ---------------------------
+def create_fixed_zip(fixed_files: dict):
+    temp_dir = tempfile.mkdtemp()
+    zip_path = os.path.join(temp_dir, "fixed_project.zip")
+
+    with zipfile.ZipFile(zip_path, "w") as zipf:
+        for path, content in fixed_files.items():
+            full_path = os.path.join(temp_dir, path)
+            os.makedirs(os.path.dirname(full_path), exist_ok=True)
+
+            with open(full_path, "w", encoding="utf-8") as f:
+                f.write(content)
+
+            zipf.write(full_path, arcname=path)
+
+    return zip_path
+
+
+# ---------------------------
+#  Сохранение истории в Supabase
+# ---------------------------
+def save_history(task, file_names, zip_files, model_output):
+    supabase.table("ai_coder_history").insert({
+        "task": task,
+        "file_names": file_names,
+        "zip_files": zip_files,
+        "model_output": model_output
+    }).execute()
 
 
 # ---------------------------
@@ -129,14 +179,16 @@ async def ai_coder(
                 "\n".join(
                     f"--- {path} ---\n{content}\n"
                     for path, content in zip_contents.items()
-                )
+                ) +
+                "\n\n"
+                "Исправь ошибки, оптимизируй код и верни исправленные файлы "
+                "в формате:\n--- path/to/file.py ---\n<исправленный код>"
             )
         }
     ]
 
     result = call_model(messages)
 
-    # Сохраняем историю
     save_history(
         task=task,
         file_names=file.filename if file else "",
@@ -144,12 +196,10 @@ async def ai_coder(
         model_output=result
     )
 
-    # Возврат результата
-    result_file = tempfile.NamedTemporaryFile(delete=False, suffix=".txt")
-    result_file.write(result.encode("utf-8"))
-    result_file.close()
+    fixed_files = parse_fixed_files(result)
+    fixed_zip_path = create_fixed_zip(fixed_files)
 
-    download_url = f"/admin/ai-coder/download?path={result_file.name}"
+    download_url = f"/admin/ai-coder/download?path={fixed_zip_path}"
 
     return templates.TemplateResponse("admin_ai_coder.html", {
         "request": request,
@@ -158,6 +208,29 @@ async def ai_coder(
         "download": download_url
     })
 
+
+# ---------------------------
+#  История — список
+# ---------------------------
+@router.get("/admin/ai-coder/history")
+def ai_coder_history(request: Request):
+    data = supabase.table("ai_coder_history").select("*").order("created_at", desc=True).execute()
+    return templates.TemplateResponse("ai_coder_history.html", {
+        "request": request,
+        "items": data.data
+    })
+
+
+# ---------------------------
+#  История — один элемент
+# ---------------------------
+@router.get("/admin/ai-coder/history/{item_id}")
+def ai_coder_history_item(request: Request, item_id: str):
+    data = supabase.table("ai_coder_history").select("*").eq("id", item_id).single().execute()
+    return templates.TemplateResponse("ai_coder_history_item.html", {
+        "request": request,
+        "item": data.data
+    })
 
 
 # ---------------------------
