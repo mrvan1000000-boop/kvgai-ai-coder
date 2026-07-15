@@ -47,7 +47,7 @@
             <div class="input-actions">
                 <label class="file-attach-btn" id="fileAttachBtn">
                     <i class="fas fa-paperclip"></i>
-                    <input type="file" name="file" id="fileInput" style="display: none;" multiple>
+                    <input type="file" name="file" id="fileInput" style="display: none;">
                 </label>
                 <button type="submit" class="btn-send" id="submitBtn">
                     <i class="fas fa-arrow-up"></i>
@@ -89,8 +89,7 @@
 
     fileInput.addEventListener('change', function() {
         if (this.files.length > 0) {
-            let names = Array.from(this.files).map(f => f.name).join(', ');
-            fileNames.textContent = names;
+            fileNames.textContent = this.files[0].name;
             filePreview.style.display = 'flex';
         } else {
             filePreview.style.display = 'none';
@@ -250,6 +249,7 @@
 
         const task = taskInput.value.trim();
         if (!task && !fileInput.files.length) {
+            // можно добавить лёгкое уведомление, но пока просто игнорируем
             return;
         }
 
@@ -258,7 +258,7 @@
         formData.append('task', task);
         formData.append('user_id', document.getElementById('user_id_input').value || localStorage.getItem('kvg_ai_user_id') || '');
         if (fileInput.files.length) {
-            formData.append('file', fileInput.files[0]);
+            formData.append('file', fileInput.files[0]); // только один файл
         }
 
         // === ДОБАВЛЯЕМ МОДЕЛЬ ===
