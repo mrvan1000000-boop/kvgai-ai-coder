@@ -9,6 +9,6 @@ app = FastAPI()
 app.include_router(ai_coder_router)
 
 # Если нужны статики — можно подключить
-# app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Railway запускает uvicorn сам, поэтому блок if __name__ == "__main__" НЕ нужен
