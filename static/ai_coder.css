@@ -416,6 +416,110 @@ body {
     color: var(--danger);
 }
 
+/* ===== Модель-селектор ===== */
+.model-selector {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    padding: 8px 0;
+}
+.model-selector label {
+    font-size: 13px;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+.model-selector select,
+.model-selector input[type="text"] {
+    background: var(--bg-input);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 6px 12px;
+    font-size: 13px;
+    font-family: var(--font);
+    transition: var(--transition);
+    min-width: 180px;
+}
+.model-selector select:focus,
+.model-selector input[type="text"]:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.model-selector input[type="text"] {
+    flex: 1;
+    min-width: 150px;
+}
+
+/* ===== Кнопки действий ===== */
+.form-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+}
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 22px;
+    border-radius: 999px;
+    font-weight: 600;
+    font-size: 15px;
+    border: none;
+    cursor: pointer;
+    transition: var(--transition);
+    text-decoration: none;
+}
+
+.btn-primary {
+    background: var(--accent);
+    color: #fff;
+    box-shadow: 0 8px 24px rgba(95, 138, 255, 0.35);
+}
+
+.btn-primary:hover {
+    background: var(--accent-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 12px 32px rgba(95, 138, 255, 0.45);
+}
+
+.btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.btn-secondary {
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+}
+
+.btn-secondary:hover {
+    background: var(--border-color);
+}
+
+.btn-success {
+    background: var(--success);
+    color: #0b0d14;
+}
+
+/* ===== Spinner ===== */
+.spinner {
+    display: inline-block;
+    width: 18px;
+    height: 18px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-radius: 50%;
+    border-top-color: #fff;
+    animation: spin 0.6s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
 /* ===== История ===== */
 .card {
     background: var(--bg-elevated);
@@ -464,6 +568,31 @@ body {
     color: var(--text-secondary);
 }
 
+/* ===== Троеточие ===== */
+.typing-dots {
+    display: flex;
+    gap: 4px;
+    padding: 4px 0;
+}
+.typing-dots span {
+    width: 8px;
+    height: 8px;
+    background: var(--text-muted);
+    border-radius: 50%;
+    display: inline-block;
+    animation: typingBounce 1.4s infinite both;
+}
+.typing-dots span:nth-child(2) {
+    animation-delay: 0.2s;
+}
+.typing-dots span:nth-child(3) {
+    animation-delay: 0.4s;
+}
+@keyframes typingBounce {
+    0%, 60%, 100% { transform: translateY(0); }
+    30% { transform: translateY(-6px); }
+}
+
 /* ===== Адаптив ===== */
 @media (max-width: 768px) {
     .app-shell {
@@ -496,6 +625,16 @@ body {
     .message-content {
         max-width: 90%;
     }
+
+    .model-selector {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .model-selector select,
+    .model-selector input[type="text"] {
+        min-width: unset;
+        width: 100%;
+    }
 }
 
 /* ===== Скроллбар ===== */
@@ -511,29 +650,4 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover {
     background: var(--text-muted);
-}
-
-/* Анимированное троеточие */
-.typing-dots {
-    display: flex;
-    gap: 4px;
-    padding: 4px 0;
-}
-.typing-dots span {
-    width: 8px;
-    height: 8px;
-    background: var(--text-muted);
-    border-radius: 50%;
-    display: inline-block;
-    animation: typingBounce 1.4s infinite both;
-}
-.typing-dots span:nth-child(2) {
-    animation-delay: 0.2s;
-}
-.typing-dots span:nth-child(3) {
-    animation-delay: 0.4s;
-}
-@keyframes typingBounce {
-    0%, 60%, 100% { transform: translateY(0); }
-    30% { transform: translateY(-6px); }
 }
