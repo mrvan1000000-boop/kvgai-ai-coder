@@ -110,7 +110,6 @@
     const chatWindow = document.getElementById('chatWindow');
     const submitBtn = document.getElementById('submitBtn');
 
-    // Функция добавления сообщения в чат
     function addMessage(role, content, isUser = false) {
         const messageDiv = document.createElement('div');
         messageDiv.className = `message message-${role}`;
@@ -143,7 +142,6 @@
             copyBtn.onclick = function() { copyCode(this); };
             pre.appendChild(copyBtn);
 
-            // Подсветка после добавления
             setTimeout(() => {
                 hljs.highlightElement(code);
             }, 50);
@@ -153,7 +151,6 @@
         contentDiv.appendChild(body);
         messageDiv.appendChild(contentDiv);
 
-        // Удаляем системное сообщение, если оно есть
         const systemMsg = chatWindow.querySelector('.message-system');
         if (systemMsg) systemMsg.remove();
 
@@ -161,7 +158,6 @@
         chatWindow.scrollTop = chatWindow.scrollHeight;
     }
 
-    // Индикатор печатания
     function addTypingIndicator() {
         const typingDiv = document.createElement('div');
         typingDiv.className = 'message message-assistant typing-indicator';
@@ -196,27 +192,24 @@
 
         const task = taskInput.value.trim();
         if (!task && !fileInput.files.length) {
-            // можно показать уведомление
             return;
         }
 
-        // Добавляем сообщение пользователя
-        addMessage('user', task || 'Файл прикреплён', true);
-        taskInput.value = '';
-        taskInput.style.height = 'auto';
-        // Очищаем файлы
-        clearFiles();
-
-        // Показываем индикатор печатания
-        addTypingIndicator();
-
-        // Собираем FormData
+        // 🟢 Сначала собираем FormData (до очистки)
         const formData = new FormData();
         formData.append('task', task);
         formData.append('user_id', document.getElementById('user_id_input').value);
         if (fileInput.files.length) {
             formData.append('file', fileInput.files[0]);
         }
+
+        // Добавляем сообщение пользователя
+        addMessage('user', task || 'Файл прикреплён', true);
+        taskInput.value = '';
+        taskInput.style.height = 'auto';
+        clearFiles();  // Очищаем после того, как файл уже добавлен в FormData
+
+        addTypingIndicator();
 
         submitBtn.disabled = true;
         submitBtn.innerHTML = '<span class="spinner"></span>';
@@ -228,19 +221,17 @@
             });
             const data = await response.json();
 
-            // Удаляем индикатор
             removeTypingIndicator();
 
             if (data.result) {
                 addMessage('assistant', data.result);
-                // Обновляем кнопку скачивания, если есть
+                // Обновляем или добавляем кнопку скачивания
                 const downloadArea = document.querySelector('.form-actions .download-link');
                 if (data.download_url) {
                     if (downloadArea) {
                         downloadArea.href = data.download_url;
                         downloadArea.style.display = 'inline-flex';
                     } else {
-                        // Создаём новую кнопку
                         const actionsDiv = document.querySelector('.form-actions');
                         if (!actionsDiv) {
                             const container = document.querySelector('.chat-form');
@@ -266,8 +257,5 @@
             submitBtn.innerHTML = '<i class="fas fa-arrow-up"></i>';
         }
     });
-
-    // Инициализация: если есть результат из шаблона, он уже отображается, ничего не делаем.
-    // Но если мы хотим убрать системное сообщение при наличии ответа, оно уже скрыто.
 </script>
 {% endblock %}
