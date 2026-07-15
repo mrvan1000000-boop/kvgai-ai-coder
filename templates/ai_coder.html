@@ -252,7 +252,7 @@
 
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 120000);
+            const timeoutId = setTimeout(() => controller.abort(), 180000);
 
             const response = await fetch('/admin/ai-coder/api', {
                 method: 'POST',
