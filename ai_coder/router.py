@@ -46,14 +46,13 @@ AVAILABLE_MODELS = [
 #  Функция вызова модели с fallback
 # ---------------------------
 def call_model_with_fallback(messages, primary_model):
-    # Список моделей для fallback (включая primary и платную)
     MODELS = [
         primary_model,
         "qwen/qwen3-coder:free",
         "tencent/hy3:free",
         "google/gemma-4-26b-a4b-it:free",
         "nvidia/nemotron-3-ultra-550b-a55b:free",
-        "google/gemma-4-26b-a4b-it",  # платная версия (без :free)
+        "google/gemma-4-26b-a4b-it",  # платная версия
     ]
     # Убираем дубликаты, сохраняя порядок
     seen = set()
@@ -63,6 +62,7 @@ def call_model_with_fallback(messages, primary_model):
             seen.add(m)
             unique_models.append(m)
 
+    all_429 = True
     last_error = None
 
     for model in unique_models:
@@ -77,7 +77,7 @@ def call_model_with_fallback(messages, primary_model):
                     "X-Title": "KVG AI Studio"
                 },
                 json={"model": model, "messages": messages},
-                timeout=60  # таймаут на один запрос – 60 секунд
+                timeout=60
             )
             response.raise_for_status()
             data = response.json()
@@ -100,21 +100,32 @@ def call_model_with_fallback(messages, primary_model):
 
         except requests.exceptions.Timeout:
             logger.warning(f"Model {model} timeout, trying next")
+            all_429 = False
             last_error = "Timeout"
             continue
         except requests.exceptions.RequestException as e:
             logger.warning(f"Model {model} request error: {e}, trying next")
-            last_error = str(e)
-            continue
+            # Проверяем, если это 429
+            if hasattr(e, 'response') and e.response is not None and e.response.status_code == 429:
+                # 429 — продолжаем, all_429 остаётся True
+                continue
+            else:
+                all_429 = False
+                last_error = str(e)
+                continue
         except Exception as e:
             logger.warning(f"Model {model} unexpected error: {e}, trying next")
+            all_429 = False
             last_error = str(e)
             continue
 
-    # Если все модели не сработали
-    error_msg = f"❌ Все модели недоступны. Последняя ошибка: {last_error}" if last_error else "❌ Все модели недоступны. Попробуйте позже."
-    logger.error(error_msg)
-    return error_msg
+    # Если все ошибки были 429
+    if all_429:
+        return "❌ Нейросеть временно недоступна. Попробуйте выбрать другую модель или повторите запрос позже."
+    else:
+        error_msg = f"❌ Все модели недоступны. Последняя ошибка: {last_error}" if last_error else "❌ Все модели недоступны. Попробуйте позже."
+        logger.error(error_msg)
+        return error_msg
 
 # ---------------------------
 #  Вспомогательные функции
@@ -228,7 +239,6 @@ async def ai_coder(
     if not user_id:
         user_id = str(uuid.uuid4())
 
-    # Определяем модель
     if model == "custom" and custom_model:
         selected_model = custom_model
     elif model in AVAILABLE_MODELS:
@@ -298,7 +308,6 @@ async def ai_coder_api(
         if not user_id:
             user_id = str(uuid.uuid4())
 
-        # Определяем модель
         if model == "custom" and custom_model:
             selected_model = custom_model
         elif model in AVAILABLE_MODELS:
@@ -334,12 +343,17 @@ async def ai_coder_api(
                 "\n\nИсправь ошибки, оптимизируй код и верни исправленные файлы в формате:\n--- path/to/file.py ---\n<исправленный код>"
             )
         }
+
+        # Логирование для отладки
+        logger.info(f"ZIP contents keys: {list(zip_contents.keys())}")
+        logger.info(f"Message content length: {len(current_message['content'])}")
+
         messages = history + [current_message]
         result = call_model_with_fallback(messages, selected_model)
 
         if result.startswith("❌"):
             logger.error(f"Returning error to client: {result}")
-            return JSONResponse({"error": result}, status_code=500)
+            return JSONResponse({"error": result}, status_code=503)  # Service Unavailable
 
         save_message(user_id, "user", current_message["content"])
         save_message(user_id, "assistant", result)
