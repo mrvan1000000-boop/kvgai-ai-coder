@@ -246,7 +246,7 @@ def ai_coder_history(request: Request, user_id: str):
         supabase.table("ai_coder_history")
         .select("*")
         .eq("user_id", user_id)
-        .order("created_at", ascending=False)
+        .order("created_at", False)
         .execute()
     )
 
