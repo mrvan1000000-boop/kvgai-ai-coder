@@ -27,56 +27,48 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 
-
 # ---------------------------
-#  GET — HTML страница
+#  Модели
 # ---------------------------
-@router.get("/admin/ai-coder")
-def ai_coder_page(request: Request, user_id: str | None = None):
-    if not user_id:
-        user_id = str(uuid.uuid4())
+AVAILABLE_MODELS = [
+    "google/gemma-4-26b-a4b-it:free",
+    "qwen/qwen2.5-coder",
+    "deepseek/deepseek-coder",
+]
+def call_model_with_fallback(messages, primary_model):
+    MODELS = [
+        primary_model,
+        "qwen/qwen2.5-coder",
+        "deepseek/deepseek-coder",
+        "google/gemma-4-26b-a4b-it",  # платная fallback
+    ]
 
-    return templates.TemplateResponse("ai_coder.html", {
-        "request": request,
-        "result": None,
-        "task": "",
-        "download": None,
-        "user_id": user_id
-    })
+    for model in MODELS:
+        response = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://dalvideo.ru",
+                "X-Title": "KVG AI Studio"
+            },
+            json={
+                "model": model,
+                "messages": messages
+            }
+        ).json()
 
+        if "error" in response:
+            err = response["error"]
+            if err.get("code") == 429:
+                continue  # лимит → пробуем следующую модель
+            else:
+                return f"❌ Ошибка модели {model}:\n{response}"
 
-# ---------------------------
-#  Вызов модели OpenRouter
-# ---------------------------
-def call_model(messages):
-    response = requests.post(
-        "https://openrouter.ai/api/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://dalvideo.ru",
-            "X-Title": "KVG AI Studio"
-        },
-        json={
-            "model": "google/gemma-4-26b-a4b-it:free",
-            "messages": messages
-        }
-    )
+        if "choices" in response:
+            return response["choices"][0]["message"]["content"]
 
-    data = response.json()
-
-    if "error" in data:
-        return f"❌ Ошибка OpenRouter:\n{data}"
-
-    if "choices" not in data:
-        return f"❌ Неверный ответ от OpenRouter:\n{data}"
-
-    return data["choices"][0]["message"]["content"]
-
-
-# ---------------------------
-#  ZIP — распаковка и чтение всех файлов
-# ---------------------------
+    return "❌ Все модели недоступны. Попробуй позже."
 def extract_zip_and_read(zip_file: UploadFile):
     temp_dir = tempfile.mkdtemp()
     zip_path = os.path.join(temp_dir, "uploaded.zip")
@@ -105,9 +97,6 @@ def extract_zip_and_read(zip_file: UploadFile):
     return files_data
 
 
-# ---------------------------
-#  Парсер исправленных файлов из ответа модели
-# ---------------------------
 def parse_fixed_files(model_output: str):
     fixed = {}
     current_path = None
@@ -129,9 +118,6 @@ def parse_fixed_files(model_output: str):
     return fixed
 
 
-# ---------------------------
-#  Создание ZIP с исправленными файлами
-# ---------------------------
 def create_fixed_zip(fixed_files: dict):
     temp_dir = tempfile.mkdtemp()
     zip_path = os.path.join(temp_dir, "fixed_project.zip")
@@ -149,9 +135,6 @@ def create_fixed_zip(fixed_files: dict):
     return zip_path
 
 
-# ---------------------------
-#  Сохранение истории задач
-# ---------------------------
 def save_history(user_id, task, file_names, zip_files, model_output):
     if not supabase:
         return
@@ -163,11 +146,6 @@ def save_history(user_id, task, file_names, zip_files, model_output):
         "zip_files": zip_files,
         "model_output": model_output
     }).execute()
-
-
-# ---------------------------
-#  Память сообщений
-# ---------------------------
 def save_message(user_id: str, role: str, content: str):
     if not supabase:
         return
@@ -198,21 +176,32 @@ def load_messages(user_id: str, limit: int = 10):
     ]
 
     return formatted
+@router.get("/admin/ai-coder")
+def ai_coder_page(request: Request, user_id: str | None = None):
+    if not user_id:
+        user_id = str(uuid.uuid4())
 
-
-# ---------------------------
-#  POST — обработка формы
-# ---------------------------
+    return templates.TemplateResponse("ai_coder.html", {
+        "request": request,
+        "result": None,
+        "task": "",
+        "download": None,
+        "user_id": user_id
+    })
 @router.post("/admin/ai-coder")
 async def ai_coder(
     request: Request,
     task: str = Form(...),
     file: UploadFile = File(None),
     zip: UploadFile = File(None),
+    model: str = Form(None),
     user_id: str = Form(None)
 ):
     if not user_id:
         user_id = str(uuid.uuid4())
+
+    if not model:
+        model = AVAILABLE_MODELS[0]
 
     file_contents = ""
     zip_contents = {}
@@ -226,10 +215,8 @@ async def ai_coder(
         except zipfile.BadZipFile:
             zip_contents = {"error": "Файл не является ZIP-архивом"}
 
-    # Загружаем память сообщений
     history = load_messages(user_id)
 
-    # Формируем текущее сообщение
     current_message = {
         "role": "user",
         "content": (
@@ -247,17 +234,13 @@ async def ai_coder(
         )
     }
 
-    # Финальный контекст для модели
     messages = history + [current_message]
 
-    # Вызов модели
-    result = call_model(messages)
+    result = call_model_with_fallback(messages, model)
 
-    # Сохраняем сообщения в память
     save_message(user_id, "user", current_message["content"])
     save_message(user_id, "assistant", result)
 
-    # Сохраняем историю задач
     save_history(
         user_id=user_id,
         task=task,
@@ -266,7 +249,6 @@ async def ai_coder(
         model_output=result
     )
 
-    # Обработка ZIP
     fixed_files = parse_fixed_files(result)
     fixed_zip_path = create_fixed_zip(fixed_files)
 
@@ -279,11 +261,6 @@ async def ai_coder(
         "download": download_url,
         "user_id": user_id
     })
-
-
-# ---------------------------
-#  История — список
-# ---------------------------
 @router.get("/admin/ai-coder/history/{user_id}")
 def ai_coder_history(request: Request, user_id: str):
     if not supabase:
@@ -305,9 +282,6 @@ def ai_coder_history(request: Request, user_id: str):
     })
 
 
-# ---------------------------
-#  История — один элемент
-# ---------------------------
 @router.get("/admin/ai-coder/history/item/{item_id}")
 def ai_coder_history_item(request: Request, item_id: str):
     if not supabase:
@@ -327,9 +301,6 @@ def ai_coder_history_item(request: Request, item_id: str):
     })
 
 
-# ---------------------------
-#  Скачивание результата
-# ---------------------------
 @router.get("/admin/ai-coder/download")
 def download_file(path: str):
     with open(path, "rb") as f:
