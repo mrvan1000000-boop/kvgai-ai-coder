@@ -1,14 +1,12 @@
 {% extends "layout.html" %}
 {% block content %}
-
 <div class="card">
-  <div class="card-title">История запросов</div>
-
+  <div class="card-title"><i class="fas fa-clock-rotate-left"></i> История запросов</div>
   {% for item in items %}
     <a href="/admin/ai-coder/history/item/{{ item.id }}" class="history-item">
-      {{ item.created_at }} — {{ item.task[:80] }}...
+      <span class="date">{{ item.created_at }}</span>
+      <span class="task-preview">{{ item.task[:80] }}...</span>
     </a>
   {% endfor %}
 </div>
-
 {% endblock %}
