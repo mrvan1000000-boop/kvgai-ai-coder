@@ -210,7 +210,6 @@ async def ai_coder(
     request: Request,
     task: str = Form(...),
     file: UploadFile = File(None),
-    zip: UploadFile = File(None),
     model: str = Form(None),
     user_id: str = Form(None)
 ):
@@ -222,16 +221,19 @@ async def ai_coder(
 
     file_contents = ""
     zip_contents = {}
+    file_name = ""
+    is_zip = False
 
-    if file:
-        file_contents = safe_read_file(file)
-
-
-    if zip and zip.filename:
-        try:
-            zip_contents = extract_zip_and_read(zip)
-        except zipfile.BadZipFile:
-            zip_contents = {"error": "Файл не является ZIP-архивом"}
+    if file and file.filename:
+        file_name = file.filename
+        if file.filename.lower().endswith('.zip') or file.content_type == 'application/zip':
+            is_zip = True
+            try:
+                zip_contents = extract_zip_and_read(file)
+            except zipfile.BadZipFile:
+                zip_contents = {"error": "Файл не является ZIP-архивом"}
+        else:
+            file_contents = file.file.read().decode("utf-8", errors="ignore")
 
     history = load_messages(user_id)
 
@@ -262,8 +264,8 @@ async def ai_coder(
     save_history(
         user_id=user_id,
         task=task,
-        file_names=file.filename if file else "",
-        zip_files=zip.filename if zip else "",
+        file_names=file_name if not is_zip else "",
+        zip_files=file_name if is_zip else "",
         model_output=result
     )
 
