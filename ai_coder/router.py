@@ -110,20 +110,15 @@ async def ai_coder(
     file_contents = ""
     zip_contents = {}
 
-    # Чтение одиночного файла
     if file:
         file_contents = file.file.read().decode("utf-8", errors="ignore")
 
-    # Чтение ZIP — распаковка и анализ всех файлов
-    zip_contents = {}
+    if zip and zip.filename:
+        try:
+            zip_contents = extract_zip_and_read(zip)
+        except zipfile.BadZipFile:
+            zip_contents = {"error": "Файл не является ZIP-архивом"}
 
-if zip and zip.filename:
-    try:
-        zip_contents = extract_zip_and_read(zip)
-    except zipfile.BadZipFile:
-        zip_contents = {"error": "Файл не является ZIP-архивом"}
-
-    # Формируем сообщение для модели
     messages = [
         {
             "role": "user",
@@ -141,7 +136,15 @@ if zip and zip.filename:
 
     result = call_model(messages)
 
-    # Сохраняем результат в файл
+    # Сохраняем историю
+    save_history(
+        task=task,
+        file_names=file.filename if file else "",
+        zip_files=zip.filename if zip else "",
+        model_output=result
+    )
+
+    # Возврат результата
     result_file = tempfile.NamedTemporaryFile(delete=False, suffix=".txt")
     result_file.write(result.encode("utf-8"))
     result_file.close()
@@ -154,6 +157,7 @@ if zip and zip.filename:
         "task": task,
         "download": download_url
     })
+
 
 
 # ---------------------------
