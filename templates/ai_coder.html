@@ -45,9 +45,9 @@
         <div class="input-area">
             <textarea name="task" rows="1" placeholder="Опиши задачу или прикрепи файл..." id="taskInput"></textarea>
             <div class="input-actions">
-                <label class="file-attach-btn">
+                <label class="file-attach-btn" id="fileAttachBtn">
                     <i class="fas fa-paperclip"></i>
-                    <input type="file" name="file" id="fileInput" style="display: none;">
+                    <input type="file" name="file" id="fileInput" style="display: none;" multiple>
                 </label>
                 <button type="submit" class="btn-send" id="submitBtn">
                     <i class="fas fa-arrow-up"></i>
@@ -58,11 +58,18 @@
             <span id="fileNames"></span>
             <button type="button" class="btn-remove-file" onclick="clearFiles()"><i class="fas fa-times"></i></button>
         </div>
+        <div class="form-actions" id="formActions">
+            {% if download %}
+                <a href="{{ download }}" class="btn btn-success download-link"><i class="fas fa-download"></i> Скачать исправленный ZIP</a>
+            {% endif %}
+        </div>
     </form>
 </div>
 
 <script>
-    // Обработка выбора файлов
+    // ========================
+    // 1. Работа с файлами
+    // ========================
     const fileInput = document.getElementById('fileInput');
     const filePreview = document.getElementById('filePreview');
     const fileNames = document.getElementById('fileNames');
@@ -82,7 +89,9 @@
         filePreview.style.display = 'none';
     }
 
-    // Авто-высота textarea
+    // ========================
+    // 2. Авто-высота textarea
+    // ========================
     const taskInput = document.getElementById('taskInput');
     taskInput.addEventListener('input', function() {
         this.style.height = 'auto';
@@ -91,7 +100,16 @@
     taskInput.style.height = 'auto';
     taskInput.style.height = taskInput.scrollHeight + 'px';
 
-    // Копирование кода
+    // Отправка по Ctrl+Enter
+    taskInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+            document.getElementById('chatForm').dispatchEvent(new Event('submit'));
+        }
+    });
+
+    // ========================
+    // 3. Копирование кода
+    // ========================
     window.copyCode = function(btn) {
         const pre = btn.closest('.message-body').querySelector('pre');
         const text = pre ? pre.textContent : '';
@@ -102,15 +120,29 @@
                 btn.innerHTML = '<i class="fas fa-copy"></i> Копировать';
                 btn.classList.remove('copied');
             }, 2000);
+        }).catch(() => {
+            // fallback
+            const range = document.createRange();
+            range.selectNode(pre);
+            window.getSelection().removeAllRanges();
+            window.getSelection().addRange(range);
+            document.execCommand('copy');
+            btn.innerHTML = '<i class="fas fa-check"></i> Скопировано!';
+            setTimeout(() => {
+                btn.innerHTML = '<i class="fas fa-copy"></i> Копировать';
+            }, 2000);
         });
     };
 
-    // ===== AJAX-отправка =====
+    // ========================
+    // 4. AJAX-отправка
+    // ========================
     const chatForm = document.getElementById('chatForm');
     const chatWindow = document.getElementById('chatWindow');
     const submitBtn = document.getElementById('submitBtn');
+    const formActions = document.getElementById('formActions');
 
-    function addMessage(role, content, isUser = false) {
+    function addMessage(role, content) {
         const messageDiv = document.createElement('div');
         messageDiv.className = `message message-${role}`;
         const avatarIcon = role === 'user' ? 'user' : (role === 'assistant' ? 'robot' : 'info-circle');
@@ -143,7 +175,7 @@
             pre.appendChild(copyBtn);
 
             setTimeout(() => {
-                hljs.highlightElement(code);
+                if (window.hljs) hljs.highlightElement(code);
             }, 50);
         } else {
             body.textContent = content;
@@ -151,7 +183,7 @@
         contentDiv.appendChild(body);
         messageDiv.appendChild(contentDiv);
 
-        // Удаляем системное сообщение, если оно есть
+        // Удаляем системное сообщение (если есть)
         const systemMsg = chatWindow.querySelector('.message-system');
         if (systemMsg) systemMsg.remove();
 
@@ -193,31 +225,32 @@
 
         const task = taskInput.value.trim();
         if (!task && !fileInput.files.length) {
+            // можно показать лёгкое уведомление, но пока просто игнорируем
             return;
         }
 
-        // Формируем FormData (до очистки)
+        // 1. Собираем FormData (до очистки)
         const formData = new FormData();
         formData.append('task', task);
-        formData.append('user_id', document.getElementById('user_id_input').value);
+        formData.append('user_id', document.getElementById('user_id_input').value || localStorage.getItem('kvg_ai_user_id') || '');
         if (fileInput.files.length) {
+            // Берём только первый файл (можно изменить на все, но сервер принимает один)
             formData.append('file', fileInput.files[0]);
         }
 
-        // Добавляем сообщение пользователя
-        addMessage('user', task || 'Файл прикреплён', true);
+        // 2. Добавляем сообщение пользователя
+        addMessage('user', task || '📎 Файл прикреплён');
         taskInput.value = '';
         taskInput.style.height = 'auto';
         clearFiles();
 
-        // Показываем индикатор печатания
+        // 3. Показываем индикатор печатания
         addTypingIndicator();
 
         submitBtn.disabled = true;
         submitBtn.innerHTML = '<span class="spinner"></span>';
 
         try {
-            // Устанавливаем таймаут 120 секунд
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 120000);
 
@@ -228,51 +261,70 @@
             });
             clearTimeout(timeoutId);
 
+            // Проверяем статус ответа
+            if (!response.ok) {
+                let errorText = '';
+                try {
+                    const errData = await response.json();
+                    errorText = errData.error || errData.message || `HTTP ${response.status}`;
+                } catch {
+                    errorText = await response.text() || `HTTP ${response.status}`;
+                }
+                throw new Error(errorText);
+            }
+
             const data = await response.json();
 
             // Убираем индикатор
             removeTypingIndicator();
 
-            // Проверяем наличие ошибки
             if (data.error) {
-                addMessage('system', 'Ошибка: ' + data.error);
+                addMessage('system', '❌ ' + data.error);
             } else if (data.result) {
                 addMessage('assistant', data.result);
-                // Обновляем или добавляем кнопку скачивания
-                const downloadArea = document.querySelector('.form-actions .download-link');
+                // Обновляем кнопку скачивания
                 if (data.download_url) {
-                    if (downloadArea) {
-                        downloadArea.href = data.download_url;
-                        downloadArea.style.display = 'inline-flex';
+                    let downloadLink = formActions.querySelector('.download-link');
+                    if (downloadLink) {
+                        downloadLink.href = data.download_url;
+                        downloadLink.style.display = 'inline-flex';
                     } else {
-                        const actionsDiv = document.querySelector('.form-actions');
-                        if (!actionsDiv) {
-                            const container = document.querySelector('.chat-form');
-                            const actions = document.createElement('div');
-                            actions.className = 'form-actions';
-                            container.appendChild(actions);
-                        }
                         const newLink = document.createElement('a');
                         newLink.className = 'btn btn-success download-link';
                         newLink.href = data.download_url;
                         newLink.innerHTML = '<i class="fas fa-download"></i> Скачать исправленный ZIP';
-                        document.querySelector('.form-actions').appendChild(newLink);
+                        formActions.appendChild(newLink);
                     }
                 }
             } else {
-                addMessage('system', 'Неизвестный ответ от сервера.');
+                addMessage('system', '⚠️ Неизвестный ответ от сервера.');
             }
         } catch (error) {
             removeTypingIndicator();
             if (error.name === 'AbortError') {
-                addMessage('system', 'Превышено время ожидания ответа от сервера (120 сек).');
+                addMessage('system', '⏱️ Превышено время ожидания ответа от сервера (120 сек).');
             } else {
-                addMessage('system', 'Ошибка соединения: ' + error.message);
+                addMessage('system', '❌ Ошибка: ' + error.message);
             }
         } finally {
             submitBtn.disabled = false;
             submitBtn.innerHTML = '<i class="fas fa-arrow-up"></i>';
         }
     });
+
+    // ========================
+    // 5. Сохраняем user_id
+    // ========================
+    (function() {
+        const uid = "{{ user_id }}";
+        if (uid && uid !== "None") {
+            localStorage.setItem("kvg_ai_user_id", uid);
+        }
+        const input = document.getElementById('user_id_input');
+        if (!input.value || input.value === 'None') {
+            const stored = localStorage.getItem('kvg_ai_user_id');
+            if (stored) input.value = stored;
+        }
+    })();
 </script>
 {% endblock %}
