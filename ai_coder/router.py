@@ -28,8 +28,23 @@ def call_qwen(messages):
             "messages": messages
         }
     )
+
     data = response.json()
+
+    # Если OpenRouter вернул ошибку — показываем её
+    if "error" in data:
+        return f"❌ Ошибка OpenRouter:\n{data['error']}"
+
+    if "message" in data and "choices" not in data:
+        return f"❌ Ответ без choices:\n{data}"
+
+    # Если нет choices — возвращаем весь ответ
+    if "choices" not in data:
+        return f"❌ Неверный ответ от OpenRouter:\n{data}"
+
+    # Нормальный ответ
     return data["choices"][0]["message"]["content"]
+
 
 
 
