@@ -330,7 +330,7 @@
         } catch (error) {
             removeTypingIndicator();
             if (error.name === 'AbortError') {
-                addMessage('system', '⏱️ Превышено время ожидания ответа от сервера (180 сек).');
+                addMessage('system', '⏱️ Превышено время ожидания ответа от сервера (20 сек).');
             } else {
                 addMessage('system', '❌ Ошибка: ' + error.message);
             }
