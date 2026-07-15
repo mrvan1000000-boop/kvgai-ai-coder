@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Request, UploadFile, File, Form
-from fastapi.responses import JSONResponse  # ← импорт в начале
+from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
 import tempfile
 import shutil
@@ -7,7 +7,6 @@ import os
 import requests
 import zipfile
 import uuid
-import mimetypes
 
 # ---------------------------
 #  SUPABASE
@@ -55,7 +54,7 @@ def call_model_with_fallback(messages, primary_model):
                     "X-Title": "KVG AI Studio"
                 },
                 json={"model": model, "messages": messages},
-                timeout=60
+                timeout=120
             ).json()
             if "error" in response:
                 err = response["error"]
@@ -65,6 +64,8 @@ def call_model_with_fallback(messages, primary_model):
                     return f"❌ Ошибка модели {model}:\n{response}"
             if "choices" in response:
                 return response["choices"][0]["message"]["content"]
+        except requests.exceptions.Timeout:
+            return f"❌ Таймаут модели {model}. Попробуйте позже."
         except Exception as e:
             continue
     return "❌ Все модели недоступны. Попробуй позже."
@@ -161,7 +162,6 @@ def ai_coder_page(request: Request, user_id: str | None = None):
             "user_id": user_id
         })
     except Exception as e:
-        # Если ошибка в шаблоне, покажем её в ответе
         return JSONResponse({"error": f"Ошибка рендеринга: {str(e)}"}, status_code=500)
 
 # ========== POST /admin/ai-coder (синхронная версия) ==========
@@ -208,6 +208,18 @@ async def ai_coder(
     }
     messages = history + [current_message]
     result = call_model_with_fallback(messages, model)
+    
+    # Проверяем ошибку модели
+    if result.startswith("❌"):
+        # Можно вернуть страницу с ошибкой, но лучше вернуть JSON и показать в чате
+        return templates.TemplateResponse("ai_coder.html", {
+            "request": request,
+            "result": f"Ошибка: {result}",
+            "task": task,
+            "download": None,
+            "user_id": user_id
+        })
+    
     save_message(user_id, "user", current_message["content"])
     save_message(user_id, "assistant", result)
     save_history(user_id, task, file_name if not is_zip else "", file_name if is_zip else "", result)
@@ -268,6 +280,11 @@ async def ai_coder_api(
         }
         messages = history + [current_message]
         result = call_model_with_fallback(messages, model)
+        
+        # Проверяем ошибку модели
+        if result.startswith("❌"):
+            return JSONResponse({"error": result}, status_code=500)
+        
         save_message(user_id, "user", current_message["content"])
         save_message(user_id, "assistant", result)
         save_history(user_id, task, file_name if not is_zip else "", file_name if is_zip else "", result)
