@@ -246,13 +246,15 @@ def ai_coder_history(request: Request, user_id: str):
         supabase.table("ai_coder_history")
         .select("*")
         .eq("user_id", user_id)
-        .order("created_at", False)  # False = по убыванию
         .execute()
     )
 
+    # сортировка вручную — единственный рабочий способ
+    items = sorted(data.data, key=lambda x: x["created_at"], reverse=True)
+
     return templates.TemplateResponse("ai_coder_history.html", {
         "request": request,
-        "items": data.data,
+        "items": items,
         "user_id": user_id
     })
 
