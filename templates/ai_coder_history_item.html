@@ -1,9 +1,8 @@
 {% extends "layout.html" %}
 {% block content %}
-
 <div class="card">
-  <div class="card-title">Запрос</div>
-  <div class="card-body">
+  <div class="card-title"><i class="fas fa-file-lines"></i> Запрос</div>
+  <div class="card-body" style="display: grid; gap: 6px;">
     <strong>Дата:</strong> {{ item.created_at }}<br>
     <strong>Задача:</strong> {{ item.task }}<br>
     <strong>Файл:</strong> {{ item.file_names }}<br>
@@ -12,8 +11,7 @@
 </div>
 
 <div class="card">
-  <div class="card-title">Ответ модели</div>
-  <pre class="card-body">{{ item.model_output }}</pre>
+  <div class="card-title"><i class="fas fa-code"></i> Ответ модели</div>
+  <pre class="card-body" style="background: var(--bg-primary); padding: 16px; border-radius: var(--radius-sm); overflow-x: auto;"><code class="language-plaintext">{{ item.model_output }}</code></pre>
 </div>
-
 {% endblock %}
