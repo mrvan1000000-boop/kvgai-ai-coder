@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>{{ title }}</title>
+<link rel="stylesheet" href="/static/ui.css">
+</head>
+
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-title">KVG AI Studio</div>
+
+    <nav class="sidebar-nav">
+      <a href="/admin/ai-coder" class="nav-item">AI‑Coder</a>
+      <a href="/admin/ai-coder/history/{{ user_id }}" class="nav-item">История</a>
+      <a href="/admin/profile" class="nav-item">Профиль</a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="user-box">
+        <div class="user-name">{{ user_id }}</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main content -->
+  <main class="content">
+    {% block content %}{% endblock %}
+  </main>
+
+</div>
+</body>
+</html>
