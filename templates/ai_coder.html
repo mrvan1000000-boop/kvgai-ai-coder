@@ -54,10 +54,26 @@
                 </button>
             </div>
         </div>
+        
         <div class="file-preview" id="filePreview" style="display: none;">
             <span id="fileNames"></span>
             <button type="button" class="btn-remove-file" onclick="clearFiles()"><i class="fas fa-times"></i></button>
         </div>
+
+        <!-- Блок выбора модели -->
+        <div class="model-selector">
+            <label for="modelSelect"><i class="fas fa-cube"></i> Модель:</label>
+            <select id="modelSelect">
+                {% for m in models %}
+                    <option value="{{ m }}">{{ m }}</option>
+                {% endfor %}
+                <option value="custom">✨ Своя модель</option>
+            </select>
+            <div id="customModelContainer" style="display: none; margin-top: 6px;">
+                <input type="text" id="customModelInput" placeholder="например: meta-llama/llama-3.1-70b-instruct:free" style="width: 100%; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-input); color: var(--text-primary);">
+            </div>
+        </div>
+
         <div class="form-actions" id="formActions">
             {% if download %}
                 <a href="{{ download }}" class="btn btn-success download-link"><i class="fas fa-download"></i> Скачать исправленный ZIP</a>
@@ -108,7 +124,23 @@
     });
 
     // ========================
-    // 3. Копирование кода
+    // 3. Управление выбором модели
+    // ========================
+    const modelSelect = document.getElementById('modelSelect');
+    const customModelContainer = document.getElementById('customModelContainer');
+    const customModelInput = document.getElementById('customModelInput');
+
+    modelSelect.addEventListener('change', function() {
+        if (this.value === 'custom') {
+            customModelContainer.style.display = 'block';
+            customModelInput.focus();
+        } else {
+            customModelContainer.style.display = 'none';
+        }
+    });
+
+    // ========================
+    // 4. Копирование кода
     // ========================
     window.copyCode = function(btn) {
         const pre = btn.closest('.message-body').querySelector('pre');
@@ -135,7 +167,7 @@
     };
 
     // ========================
-    // 4. AJAX-отправка
+    // 5. AJAX-отправка
     // ========================
     const chatForm = document.getElementById('chatForm');
     const chatWindow = document.getElementById('chatWindow');
@@ -183,7 +215,6 @@
         contentDiv.appendChild(body);
         messageDiv.appendChild(contentDiv);
 
-        // Удаляем системное сообщение (если есть)
         const systemMsg = chatWindow.querySelector('.message-system');
         if (systemMsg) systemMsg.remove();
 
@@ -225,26 +256,32 @@
 
         const task = taskInput.value.trim();
         if (!task && !fileInput.files.length) {
-            // можно показать лёгкое уведомление, но пока просто игнорируем
             return;
         }
 
-        // 1. Собираем FormData (до очистки)
+        // Определяем модель
+        let selectedModel = modelSelect.value;
+        if (selectedModel === 'custom') {
+            selectedModel = customModelInput.value.trim();
+            if (!selectedModel) {
+                // Если не ввели, используем первую модель из списка
+                selectedModel = modelSelect.options[0].value;
+            }
+        }
+
         const formData = new FormData();
         formData.append('task', task);
         formData.append('user_id', document.getElementById('user_id_input').value || localStorage.getItem('kvg_ai_user_id') || '');
         if (fileInput.files.length) {
-            // Берём только первый файл (можно изменить на все, но сервер принимает один)
             formData.append('file', fileInput.files[0]);
         }
+        formData.append('model', selectedModel);
 
-        // 2. Добавляем сообщение пользователя
         addMessage('user', task || '📎 Файл прикреплён');
         taskInput.value = '';
         taskInput.style.height = 'auto';
         clearFiles();
 
-        // 3. Показываем индикатор печатания
         addTypingIndicator();
 
         submitBtn.disabled = true;
@@ -261,7 +298,6 @@
             });
             clearTimeout(timeoutId);
 
-            // Проверяем статус ответа
             if (!response.ok) {
                 let errorText = '';
                 try {
@@ -274,15 +310,12 @@
             }
 
             const data = await response.json();
-
-            // Убираем индикатор
             removeTypingIndicator();
 
             if (data.error) {
                 addMessage('system', '❌ ' + data.error);
             } else if (data.result) {
                 addMessage('assistant', data.result);
-                // Обновляем кнопку скачивания
                 if (data.download_url) {
                     let downloadLink = formActions.querySelector('.download-link');
                     if (downloadLink) {
@@ -302,7 +335,7 @@
         } catch (error) {
             removeTypingIndicator();
             if (error.name === 'AbortError') {
-                addMessage('system', '⏱️ Превышено время ожидания ответа от сервера (120 сек).');
+                addMessage('system', '⏱️ Превышено время ожидания ответа от сервера (180 сек).');
             } else {
                 addMessage('system', '❌ Ошибка: ' + error.message);
             }
@@ -313,7 +346,7 @@
     });
 
     // ========================
-    // 5. Сохраняем user_id
+    // 6. Сохраняем user_id
     // ========================
     (function() {
         const uid = "{{ user_id }}";
