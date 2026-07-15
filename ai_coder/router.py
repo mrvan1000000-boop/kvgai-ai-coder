@@ -43,7 +43,7 @@ AVAILABLE_MODELS = [
 ]
 
 # ---------------------------
-#  Функция вызова модели с fallback
+#  Функция вызова модели с fallback (новая логика)
 # ---------------------------
 def call_model_with_fallback(messages, primary_model):
     MODELS = [
@@ -52,9 +52,9 @@ def call_model_with_fallback(messages, primary_model):
         "tencent/hy3:free",
         "google/gemma-4-26b-a4b-it:free",
         "nvidia/nemotron-3-ultra-550b-a55b:free",
-        "google/gemma-4-26b-a4b-it",  # платная версия
+        "google/gemma-4-26b-a4b-it",  # платная
     ]
-    # Убираем дубликаты, сохраняя порядок
+    # Убираем дубликаты
     seen = set()
     unique_models = []
     for m in MODELS:
@@ -62,70 +62,63 @@ def call_model_with_fallback(messages, primary_model):
             seen.add(m)
             unique_models.append(m)
 
-    all_429 = True
-    last_error = None
+    max_attempts = 2
+    timeout = 15  # секунд на один запрос
 
-    for model in unique_models:
-        try:
-            logger.info(f"Calling model: {model}")
-            response = requests.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": "https://dalvideo.ru",
-                    "X-Title": "KVG AI Studio"
-                },
-                json={"model": model, "messages": messages},
-                timeout=60
-            )
-            response.raise_for_status()
-            data = response.json()
+    for attempt in range(max_attempts):
+        logger.info(f"Attempt {attempt + 1}/{max_attempts}")
 
-            if "error" in data:
-                err = data["error"]
-                if err.get("code") == 429:
-                    logger.warning(f"Model {model} rate limited (429), trying next")
-                    continue
+        for model in unique_models:
+            try:
+                logger.info(f"Calling model: {model}")
+                response = requests.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": "https://dalvideo.ru",
+                        "X-Title": "KVG AI Studio"
+                    },
+                    json={"model": model, "messages": messages},
+                    timeout=timeout
+                )
+                response.raise_for_status()
+                data = response.json()
+
+                if "error" in data:
+                    err = data["error"]
+                    if err.get("code") == 429:
+                        logger.warning(f"Model {model} rate limited (429), trying next")
+                        continue
+                    else:
+                        return f"❌ Ошибка модели {model}:\n{data}"
+
+                if "choices" in data and len(data["choices"]) > 0:
+                    content = data["choices"][0]["message"]["content"]
+                    logger.info(f"Model {model} returned response")
+                    return content
                 else:
-                    return f"❌ Ошибка модели {model}:\n{data}"
+                    logger.warning(f"Model {model} returned no choices")
+                    continue
 
-            if "choices" in data and len(data["choices"]) > 0:
-                content = data["choices"][0]["message"]["content"]
-                logger.info(f"Model {model} returned response")
-                return content
-            else:
-                logger.warning(f"Model {model} returned no choices")
+            except requests.exceptions.Timeout:
+                logger.warning(f"Model {model} timeout ({timeout}s), trying next")
+                continue
+            except requests.exceptions.RequestException as e:
+                logger.warning(f"Model {model} request error: {e}, trying next")
+                continue
+            except Exception as e:
+                logger.warning(f"Model {model} unexpected error: {e}, trying next")
                 continue
 
-        except requests.exceptions.Timeout:
-            logger.warning(f"Model {model} timeout, trying next")
-            all_429 = False
-            last_error = "Timeout"
-            continue
-        except requests.exceptions.RequestException as e:
-            logger.warning(f"Model {model} request error: {e}, trying next")
-            # Проверяем, если это 429
-            if hasattr(e, 'response') and e.response is not None and e.response.status_code == 429:
-                # 429 — продолжаем, all_429 остаётся True
-                continue
-            else:
-                all_429 = False
-                last_error = str(e)
-                continue
-        except Exception as e:
-            logger.warning(f"Model {model} unexpected error: {e}, trying next")
-            all_429 = False
-            last_error = str(e)
-            continue
+        # Если после первого прохода все модели не сработали, делаем ещё один проход
+        if attempt == 0:
+            logger.info("Все модели не ответили на первой попытке, начинаем второй проход...")
 
-    # Если все ошибки были 429
-    if all_429:
-        return "❌ Нейросеть временно недоступна. Попробуйте выбрать другую модель или повторите запрос позже."
-    else:
-        error_msg = f"❌ Все модели недоступны. Последняя ошибка: {last_error}" if last_error else "❌ Все модели недоступны. Попробуйте позже."
-        logger.error(error_msg)
-        return error_msg
+    # Если ни одна модель не ответила после двух проходов
+    error_msg = "❌ Нейросеть временно недоступна. Повторите попытку позже."
+    logger.error(error_msg)
+    return error_msg
 
 # ---------------------------
 #  Вспомогательные функции
@@ -344,7 +337,6 @@ async def ai_coder_api(
             )
         }
 
-        # Логирование для отладки
         logger.info(f"ZIP contents keys: {list(zip_contents.keys())}")
         logger.info(f"Message content length: {len(current_message['content'])}")
 
@@ -353,7 +345,7 @@ async def ai_coder_api(
 
         if result.startswith("❌"):
             logger.error(f"Returning error to client: {result}")
-            return JSONResponse({"error": result}, status_code=503)  # Service Unavailable
+            return JSONResponse({"error": result}, status_code=503)
 
         save_message(user_id, "user", current_message["content"])
         save_message(user_id, "assistant", result)
