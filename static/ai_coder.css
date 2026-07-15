@@ -407,3 +407,109 @@ input[type="file"] {
     border-radius: 10px;
 }
 
+/* Контейнер чата */
+.chat-container {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 40px);
+    width: 100%;
+    padding: 0 20px;
+}
+
+/* Окно сообщений */
+.messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* Сообщения */
+.bubble {
+    max-width: 70%;
+    padding: 14px 18px;
+    border-radius: 18px;
+    font-size: 15px;
+    line-height: 1.55;
+    box-shadow: 0 8px 22px rgba(0,0,0,0.35);
+}
+
+/* Сообщение пользователя — справа */
+.bubble-user {
+    align-self: flex-end;
+    background: rgba(79, 140, 255, 0.18);
+    border: 1px solid rgba(79, 140, 255, 0.35);
+}
+
+/* Сообщение ИИ — слева */
+.bubble-ai {
+    align-self: flex-start;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.08);
+}
+
+/* Текст сообщения */
+.bubble-text pre {
+    margin: 0;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 13px;
+}
+
+/* Нижняя панель ввода */
+.input-bar {
+    position: sticky;
+    bottom: 0;
+    background: #080a12;
+    padding: 16px;
+    border-top: 1px solid #1b1f2b;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* Текстовое поле */
+.input-text {
+    width: 100%;
+    min-height: 70px;
+    resize: vertical;
+    border-radius: 14px;
+    border: 1px solid #1b1f2b;
+    background: #05060a;
+    color: #f5f7ff;
+    padding: 12px;
+    font-size: 15px;
+}
+
+/* Нижняя строка */
+.input-row {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+/* Кнопка отправки */
+.btn-send {
+    background: #4f8cff;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 999px;
+    cursor: pointer;
+    font-size: 14px;
+    box-shadow: 0 10px 25px rgba(79,140,255,0.45);
+}
+
+.btn-send:hover {
+    filter: brightness(1.05);
+}
+
+/* Выбор модели */
+.model-select {
+    background: #05060a;
+    color: #f5f7ff;
+    border: 1px solid #1b1f2b;
+    padding: 8px;
+    border-radius: 12px;
+}
