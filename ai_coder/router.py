@@ -32,8 +32,8 @@ templates = Jinja2Templates(directory="templates")
 # ---------------------------
 AVAILABLE_MODELS = [
     "google/gemma-4-26b-a4b-it:free",
-    "qwen/qwen2.5-coder",
-    "deepseek/deepseek-coder",
+    "tencent/hy3:free",
+    "qwen/qwen3-coder:free",
 ]
 def call_model_with_fallback(messages, primary_model):
     MODELS = [
