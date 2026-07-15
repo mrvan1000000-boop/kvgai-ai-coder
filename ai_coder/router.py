@@ -7,6 +7,12 @@ import os
 import requests
 import zipfile
 import uuid
+import mimetypes
+import logging
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # ---------------------------
 #  SUPABASE
@@ -17,12 +23,17 @@ try:
     SUPABASE_KEY = os.getenv("SUPABASE_KEY")
     if SUPABASE_URL and SUPABASE_KEY:
         supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        logger.info("Supabase connected")
     else:
         supabase = None
-except Exception:
+        logger.warning("Supabase credentials not set")
+except Exception as e:
     supabase = None
+    logger.error(f"Supabase connection error: {e}")
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+if not OPENROUTER_API_KEY:
+    logger.warning("OPENROUTER_API_KEY not set")
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -43,8 +54,10 @@ def call_model_with_fallback(messages, primary_model):
         "tencent/hy3:free",
         "google/gemma-4-26b-a4b-it",
     ]
+    last_error = None
     for model in MODELS:
         try:
+            logger.info(f"Calling model: {model}")
             response = requests.post(
                 "https://openrouter.ai/api/v1/chat/completions",
                 headers={
@@ -54,43 +67,71 @@ def call_model_with_fallback(messages, primary_model):
                     "X-Title": "KVG AI Studio"
                 },
                 json={"model": model, "messages": messages},
-                timeout=120
-            ).json()
-            if "error" in response:
-                err = response["error"]
+                timeout=180  # 3 минуты
+            )
+            response.raise_for_status()
+            data = response.json()
+            if "error" in data:
+                err = data["error"]
                 if err.get("code") == 429:
+                    logger.warning(f"Rate limit for {model}, trying next")
                     continue
                 else:
-                    return f"❌ Ошибка модели {model}:\n{response}"
-            if "choices" in response:
-                return response["choices"][0]["message"]["content"]
+                    return f"❌ Ошибка модели {model}:\n{data}"
+            if "choices" in data and len(data["choices"]) > 0:
+                content = data["choices"][0]["message"]["content"]
+                logger.info(f"Model {model} returned response length: {len(content)}")
+                return content
         except requests.exceptions.Timeout:
-            return f"❌ Таймаут модели {model}. Попробуйте позже."
-        except Exception as e:
+            last_error = f"Таймаут модели {model}"
+            logger.warning(last_error)
             continue
-    return "❌ Все модели недоступны. Попробуй позже."
+        except Exception as e:
+            last_error = f"Ошибка модели {model}: {str(e)}"
+            logger.warning(last_error)
+            continue
+    return f"❌ Все модели недоступны. {last_error if last_error else 'Попробуйте позже.'}"
 
 def extract_zip_and_read(zip_file: UploadFile):
     temp_dir = tempfile.mkdtemp()
     zip_path = os.path.join(temp_dir, "uploaded.zip")
-    with open(zip_path, "wb") as f:
-        shutil.copyfileobj(zip_file.file, f)
+    try:
+        with open(zip_path, "wb") as f:
+            shutil.copyfileobj(zip_file.file, f)
+        logger.info(f"ZIP saved to {zip_path}, size: {os.path.getsize(zip_path)} bytes")
 
-    files_data = {}
-    with zipfile.ZipFile(zip_path, "r") as zip_ref:
-        zip_ref.extractall(temp_dir)
+        files_data = {}
+        with zipfile.ZipFile(zip_path, "r") as zip_ref:
+            zip_ref.extractall(temp_dir)
+        logger.info("ZIP extracted successfully")
 
-    for root, dirs, files in os.walk(temp_dir):
-        for filename in files:
-            full_path = os.path.join(root, filename)
-            relative_path = os.path.relpath(full_path, temp_dir)
-            try:
-                with open(full_path, "r", encoding="utf-8") as f:
-                    content = f.read()
-            except Exception:
-                continue
-            files_data[relative_path] = content
-    return files_data
+        for root, dirs, files in os.walk(temp_dir):
+            for filename in files:
+                full_path = os.path.join(root, filename)
+                relative_path = os.path.relpath(full_path, temp_dir)
+                try:
+                    with open(full_path, "r", encoding="utf-8") as f:
+                        content = f.read()
+                    files_data[relative_path] = content
+                    logger.info(f"Read file: {relative_path}, size: {len(content)} chars")
+                except UnicodeDecodeError:
+                    # Пропускаем бинарные файлы
+                    logger.info(f"Skipping binary file: {relative_path}")
+                    continue
+                except Exception as e:
+                    logger.warning(f"Could not read {relative_path}: {e}")
+                    continue
+        return files_data
+    except zipfile.BadZipFile as e:
+        logger.error(f"Bad ZIP file: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Error extracting ZIP: {e}")
+        raise
+    finally:
+        # Очистка временной папки (можно оставить для отладки)
+        # shutil.rmtree(temp_dir, ignore_errors=True)
+        pass
 
 def parse_fixed_files(model_output: str):
     fixed = {}
@@ -119,34 +160,46 @@ def create_fixed_zip(fixed_files: dict):
             with open(full_path, "w", encoding="utf-8") as f:
                 f.write(content)
             zipf.write(full_path, arcname=path)
+    logger.info(f"Created fixed ZIP at {zip_path}")
     return zip_path
 
 def save_history(user_id, task, file_names, zip_files, model_output):
     if not supabase:
         return
-    supabase.table("ai_coder_history").insert({
-        "user_id": user_id,
-        "task": task,
-        "file_names": file_names,
-        "zip_files": zip_files,
-        "model_output": model_output
-    }).execute()
+    try:
+        supabase.table("ai_coder_history").insert({
+            "user_id": user_id,
+            "task": task,
+            "file_names": file_names,
+            "zip_files": zip_files,
+            "model_output": model_output
+        }).execute()
+        logger.info(f"History saved for user {user_id}")
+    except Exception as e:
+        logger.error(f"Failed to save history: {e}")
 
 def save_message(user_id: str, role: str, content: str):
     if not supabase:
         return
-    supabase.table("ai_coder_messages").insert({
-        "user_id": user_id,
-        "role": role,
-        "content": content
-    }).execute()
+    try:
+        supabase.table("ai_coder_messages").insert({
+            "user_id": user_id,
+            "role": role,
+            "content": content
+        }).execute()
+    except Exception as e:
+        logger.error(f"Failed to save message: {e}")
 
 def load_messages(user_id: str, limit: int = 10):
     if not supabase:
         return []
-    data = supabase.table("ai_coder_messages").select("*").eq("user_id", user_id).execute()
-    items = sorted(data.data, key=lambda x: x["created_at"], reverse=True)[:limit]
-    return [{"role": msg["role"], "content": msg["content"]} for msg in reversed(items)]
+    try:
+        data = supabase.table("ai_coder_messages").select("*").eq("user_id", user_id).execute()
+        items = sorted(data.data, key=lambda x: x["created_at"], reverse=True)[:limit]
+        return [{"role": msg["role"], "content": msg["content"]} for msg in reversed(items)]
+    except Exception as e:
+        logger.error(f"Failed to load messages: {e}")
+        return []
 
 # ========== GET /admin/ai-coder ==========
 @router.get("/admin/ai-coder")
@@ -162,9 +215,10 @@ def ai_coder_page(request: Request, user_id: str | None = None):
             "user_id": user_id
         })
     except Exception as e:
+        logger.error(f"Error rendering page: {e}")
         return JSONResponse({"error": f"Ошибка рендеринга: {str(e)}"}, status_code=500)
 
-# ========== POST /admin/ai-coder (синхронная версия) ==========
+# ========== POST /admin/ai-coder (синхронная) ==========
 @router.post("/admin/ai-coder")
 async def ai_coder(
     request: Request,
@@ -192,7 +246,10 @@ async def ai_coder(
             except zipfile.BadZipFile:
                 zip_contents = {"error": "Файл не является ZIP-архивом"}
         else:
-            file_contents = file.file.read().decode("utf-8", errors="ignore")
+            try:
+                file_contents = file.file.read().decode("utf-8", errors="ignore")
+            except Exception as e:
+                file_contents = f"<Ошибка чтения файла: {e}>"
 
     history = load_messages(user_id)
     current_message = {
@@ -208,18 +265,6 @@ async def ai_coder(
     }
     messages = history + [current_message]
     result = call_model_with_fallback(messages, model)
-    
-    # Проверяем ошибку модели
-    if result.startswith("❌"):
-        # Можно вернуть страницу с ошибкой, но лучше вернуть JSON и показать в чате
-        return templates.TemplateResponse("ai_coder.html", {
-            "request": request,
-            "result": f"Ошибка: {result}",
-            "task": task,
-            "download": None,
-            "user_id": user_id
-        })
-    
     save_message(user_id, "user", current_message["content"])
     save_message(user_id, "assistant", result)
     save_history(user_id, task, file_name if not is_zip else "", file_name if is_zip else "", result)
@@ -245,6 +290,7 @@ async def ai_coder_api(
     user_id: str = Form(None)
 ):
     try:
+        logger.info(f"API call received: user_id={user_id}, task={task[:50]}...")
         if not user_id:
             user_id = str(uuid.uuid4())
         if not model:
@@ -257,14 +303,25 @@ async def ai_coder_api(
 
         if file and file.filename:
             file_name = file.filename
+            logger.info(f"File attached: {file_name}, content_type={file.content_type}")
             if file.filename.lower().endswith('.zip') or file.content_type == 'application/zip':
                 is_zip = True
                 try:
                     zip_contents = extract_zip_and_read(file)
+                    logger.info(f"ZIP contents: {len(zip_contents)} files")
                 except zipfile.BadZipFile:
                     zip_contents = {"error": "Файл не является ZIP-архивом"}
+                    logger.warning("Bad ZIP file")
+                except Exception as e:
+                    logger.error(f"Error processing ZIP: {e}")
+                    return JSONResponse({"error": f"Ошибка обработки ZIP: {str(e)}"}, status_code=400)
             else:
-                file_contents = file.file.read().decode("utf-8", errors="ignore")
+                try:
+                    file_contents = file.file.read().decode("utf-8", errors="ignore")
+                    logger.info(f"File content length: {len(file_contents)}")
+                except Exception as e:
+                    logger.error(f"Error reading file: {e}")
+                    return JSONResponse({"error": f"Ошибка чтения файла: {str(e)}"}, status_code=400)
 
         history = load_messages(user_id)
         current_message = {
@@ -280,11 +337,12 @@ async def ai_coder_api(
         }
         messages = history + [current_message]
         result = call_model_with_fallback(messages, model)
-        
-        # Проверяем ошибку модели
+
+        # Проверка на ошибку модели
         if result.startswith("❌"):
+            logger.error(f"Model error: {result}")
             return JSONResponse({"error": result}, status_code=500)
-        
+
         save_message(user_id, "user", current_message["content"])
         save_message(user_id, "assistant", result)
         save_history(user_id, task, file_name if not is_zip else "", file_name if is_zip else "", result)
@@ -293,38 +351,54 @@ async def ai_coder_api(
         fixed_zip_path = create_fixed_zip(fixed_files)
         download_url = f"/admin/ai-coder/download?path={fixed_zip_path}"
 
+        logger.info(f"API response successful for user {user_id}")
         return JSONResponse({
             "result": result,
             "download_url": download_url,
             "user_id": user_id
         })
     except Exception as e:
-        return JSONResponse({"error": f"Ошибка: {str(e)}"}, status_code=500)
+        logger.error(f"Unhandled exception in API: {e}", exc_info=True)
+        return JSONResponse({"error": f"Внутренняя ошибка сервера: {str(e)}"}, status_code=500)
 
 # ========== История ==========
 @router.get("/admin/ai-coder/history/{user_id}")
 def ai_coder_history(request: Request, user_id: str):
     if not supabase:
-        return {"error": "Supabase не настроен"}
-    data = supabase.table("ai_coder_history").select("*").eq("user_id", user_id).execute()
-    items = sorted(data.data, key=lambda x: x["created_at"], reverse=True)
-    return templates.TemplateResponse("ai_coder_history.html", {
-        "request": request,
-        "items": items,
-        "user_id": user_id
-    })
+        return JSONResponse({"error": "Supabase не настроен"}, status_code=500)
+    try:
+        data = supabase.table("ai_coder_history").select("*").eq("user_id", user_id).execute()
+        items = sorted(data.data, key=lambda x: x["created_at"], reverse=True)
+        return templates.TemplateResponse("ai_coder_history.html", {
+            "request": request,
+            "items": items,
+            "user_id": user_id
+        })
+    except Exception as e:
+        logger.error(f"Error loading history: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 @router.get("/admin/ai-coder/history/item/{item_id}")
 def ai_coder_history_item(request: Request, item_id: str):
     if not supabase:
-        return {"error": "Supabase не настроен"}
-    data = supabase.table("ai_coder_history").select("*").eq("id", item_id).single().execute()
-    return templates.TemplateResponse("ai_coder_history_item.html", {
-        "request": request,
-        "item": data.data
-    })
+        return JSONResponse({"error": "Supabase не настроен"}, status_code=500)
+    try:
+        data = supabase.table("ai_coder_history").select("*").eq("id", item_id).single().execute()
+        return templates.TemplateResponse("ai_coder_history_item.html", {
+            "request": request,
+            "item": data.data
+        })
+    except Exception as e:
+        logger.error(f"Error loading history item: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 @router.get("/admin/ai-coder/download")
 def download_file(path: str):
-    with open(path, "rb") as f:
-        return f.read()
+    try:
+        if not os.path.exists(path):
+            return JSONResponse({"error": "Файл не найден"}, status_code=404)
+        with open(path, "rb") as f:
+            return f.read()
+    except Exception as e:
+        logger.error(f"Download error: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
