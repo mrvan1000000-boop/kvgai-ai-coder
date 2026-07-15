@@ -41,34 +41,34 @@
 
     <form class="chat-form" action="/admin/ai-coder" method="post" enctype="multipart/form-data" id="chatForm">
         <input type="hidden" name="user_id" id="user_id_input" value="{{ user_id }}">
-
-        <label class="field">
+    
+        <label class="field" style="margin-bottom: 12px; flex-direction: column; align-items: stretch;">
             <span class="field-label"><i class="fas fa-pencil"></i> Задача</span>
             <textarea name="task" rows="3" placeholder="Опиши, что нужно сделать...">{{ task }}</textarea>
         </label>
-
+    
         <div class="field-row">
             <div class="field">
                 <span class="field-label"><i class="fas fa-file"></i> Файл</span>
                 <div class="file-drop-zone" id="fileDropZone">
                     <i class="fas fa-cloud-upload-alt"></i>
-                    <p>Перетащите файл или кликните для выбора</p>
-                    <p class="file-name" id="fileName">Файл не выбран</p>
+                    <span>Выбрать</span>
+                    <span class="file-name" id="fileName">нет файла</span>
                     <input type="file" name="file" id="fileInput" accept=".py,.js,.html,.css,.txt,.json">
                 </div>
             </div>
-
+    
             <div class="field">
-                <span class="field-label"><i class="fas fa-folder"></i> ZIP проекта</span>
+                <span class="field-label"><i class="fas fa-folder"></i> ZIP</span>
                 <div class="file-drop-zone" id="zipDropZone">
                     <i class="fas fa-cloud-upload-alt"></i>
-                    <p>Перетащите ZIP или кликните для выбора</p>
-                    <p class="file-name" id="zipName">ZIP не выбран</p>
+                    <span>Выбрать</span>
+                    <span class="file-name" id="zipName">нет ZIP</span>
                     <input type="file" name="zip" id="zipInput" accept=".zip">
                 </div>
             </div>
         </div>
-
+    
         <div class="form-actions">
             <button type="submit" class="btn btn-primary" id="submitBtn">
                 <i class="fas fa-paper-plane"></i> Отправить
