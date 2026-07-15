@@ -1,0 +1,34 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<div class="card">
+  <div class="card-title">AI‑Coder</div>
+
+  <form method="post" enctype="multipart/form-data">
+    <label>Задача</label>
+    <textarea name="task" class="input">{{ task }}</textarea>
+
+    <label>Файл</label>
+    <input type="file" name="file">
+
+    <label>ZIP проекта</label>
+    <input type="file" name="zip">
+
+    <input type="hidden" name="user_id" value="{{ user_id }}">
+
+    <button class="button" type="submit">Отправить</button>
+  </form>
+</div>
+
+{% if result %}
+<div class="card">
+  <div class="card-title">Результат</div>
+  <div class="card-body">{{ result }}</div>
+
+  {% if download %}
+  <a href="{{ download }}" class="button">Скачать ZIP</a>
+  {% endif %}
+</div>
+{% endif %}
+
+{% endblock %}
