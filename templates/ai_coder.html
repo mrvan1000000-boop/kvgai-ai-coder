@@ -59,7 +59,7 @@
             <button type="button" class="btn-remove-file" onclick="clearFiles()"><i class="fas fa-times"></i></button>
         </div>
 
-        <!-- ===== ВЫБОР МОДЕЛИ ===== -->
+        <!-- Выбор модели -->
         <div class="model-selector">
             <label for="modelSelect"><i class="fas fa-microchip"></i> Модель:</label>
             <select id="modelSelect" name="model">
@@ -133,7 +133,6 @@
                 btn.classList.remove('copied');
             }, 2000);
         }).catch(() => {
-            // fallback
             const range = document.createRange();
             range.selectNode(pre);
             window.getSelection().removeAllRanges();
@@ -249,19 +248,23 @@
 
         const task = taskInput.value.trim();
         if (!task && !fileInput.files.length) {
-            // можно добавить лёгкое уведомление, но пока просто игнорируем
             return;
         }
 
-        // 1. Собираем FormData (до очистки)
+        // 1. СОБИРАЕМ FormData (ДО ОЧИСТКИ)
         const formData = new FormData();
         formData.append('task', task);
         formData.append('user_id', document.getElementById('user_id_input').value || localStorage.getItem('kvg_ai_user_id') || '');
-        if (fileInput.files.length) {
-            formData.append('file', fileInput.files[0]); // только один файл
+
+        // Добавляем файл, если он есть
+        if (fileInput.files.length > 0) {
+            formData.append('file', fileInput.files[0]);
+            console.log('✅ Файл добавлен:', fileInput.files[0].name);
+        } else {
+            console.warn('⚠️ Файл не выбран');
         }
 
-        // === ДОБАВЛЯЕМ МОДЕЛЬ ===
+        // Добавляем модель
         if (modelSelect) {
             const selectedModel = modelSelect.value;
             formData.append('model', selectedModel);
@@ -270,13 +273,15 @@
             }
         }
 
-        // 2. Добавляем сообщение пользователя
+        // 2. Добавляем сообщение пользователя в чат
         addMessage('user', task || '📎 Файл прикреплён');
+
+        // 3. Очищаем поля (после того, как всё добавили в FormData)
         taskInput.value = '';
         taskInput.style.height = 'auto';
         clearFiles();
 
-        // 3. Показываем индикатор печатания
+        // 4. Показываем индикатор печатания
         addTypingIndicator();
 
         submitBtn.disabled = true;
@@ -284,7 +289,7 @@
 
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 20000);
+            const timeoutId = setTimeout(() => controller.abort(), 190000);
 
             const response = await fetch('/admin/ai-coder/api', {
                 method: 'POST',
@@ -330,7 +335,7 @@
         } catch (error) {
             removeTypingIndicator();
             if (error.name === 'AbortError') {
-                addMessage('system', '⏱️ Превышено время ожидания ответа от сервера (20 сек).');
+                addMessage('system', '⏱️ Превышено время ожидания ответа от сервера (190 сек).');
             } else {
                 addMessage('system', '❌ Ошибка: ' + error.message);
             }
