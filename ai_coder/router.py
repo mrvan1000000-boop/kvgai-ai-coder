@@ -19,7 +19,9 @@ def call_qwen(messages):
         "https://openrouter.ai/api/v1/chat/completions",
         headers={
             "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://dalvideo.ru",
+            "X-Title": "KVG AI Studio"
         },
         json={
             "model": "qwen/qwen3-coder:free",
@@ -28,6 +30,7 @@ def call_qwen(messages):
     )
     data = response.json()
     return data["choices"][0]["message"]["content"]
+
 
 
 def read_uploaded_file(upload: UploadFile):
