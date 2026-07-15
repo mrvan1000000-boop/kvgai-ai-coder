@@ -1,70 +1,66 @@
 {% extends "layout.html" %}
 {% block content %}
-<div class="chat-container">
-    <div class="chat-header">
-        <h1>AI‑Coder ассистент</h1>
-        <p>Оптимизация кода, поиск ошибок, рефакторинг проектов.</p>
-    </div>
 
-    <div class="chat-window">
+<div class="chat-wrapper">
+
+    <div class="chat-window" id="chat_window">
         {% if result %}
-            <div class="message message-user">
-                <div class="message-label">Задача</div>
-                <div class="message-body">{{ task }}</div>
+            <div class="msg msg-user">
+                <div class="msg-body">{{ task }}</div>
             </div>
 
-            <div class="message message-assistant">
-                <div class="message-label">Ответ AI‑Coder</div>
-                <div class="message-body">
+            <div class="msg msg-ai">
+                <div class="msg-body">
                     <pre>{{ result }}</pre>
                 </div>
             </div>
         {% else %}
-            <div class="message message-system">
-                <div class="message-body">
+            <div class="msg msg-ai">
+                <div class="msg-body">
                     Начни с описания задачи, прикрепи файл или ZIP проекта — AI‑Coder проанализирует и вернёт исправленный код.
                 </div>
             </div>
         {% endif %}
     </div>
 
-    <form class="chat-form" action="/admin/ai-coder" method="post" enctype="multipart/form-data">
+    <form class="chat-input-bar" action="/admin/ai-coder" method="post" enctype="multipart/form-data">
         <input type="hidden" name="user_id" id="user_id_input" value="{{ user_id }}">
 
-        <label class="field">
-            <span class="field-label">Задача</span>
-            <textarea name="task" rows="3" placeholder="Опиши, что нужно сделать...">{{ task }}</textarea>
-        </label>
+        <textarea name="task" class="input-text" placeholder="Напиши задачу..."></textarea>
 
-        <div class="field-row">
-            <label class="field">
-                <span class="field-label">Файл</span>
-                <input type="file" name="file">
-            </label>
-
-            <label class="field">
-                <span class="field-label">ZIP проекта</span>
-                <input type="file" name="zip">
-            </label>
-        </div>
-
-        <div class="form-actions">
-            <button type="submit" class="btn-primary">Отправить</button>
-            {% if download %}
-                <a href="{{ download }}" class="btn-secondary">Скачать исправленный ZIP</a>
-            {% endif %}
+        <div class="input-row">
+            <input type="file" name="file">
+            <input type="file" name="zip">
+            <select name="model" class="model-select">
+                <option value="google/gemma-4-26b-a4b-it:free">Gemma 4 26B Free</option>
+                <option value="tencent/hy3:free">Hy3 Free</option>
+                <option value="qwen/qwen3-coder:free">Qwen3 Coder Free</option>
+            </select>
+            <button class="btn-send">Отправить</button>
         </div>
     </form>
+
 </div>
 
 <script>
-    // при загрузке страницы подставляем сохранённый user_id, если он есть
-    (function() {
-        const stored = localStorage.getItem("kvg_ai_user_id");
-        const input = document.getElementById("user_id_input");
-        if (stored && input && (!input.value || input.value === "None")) {
-            input.value = stored;
-        }
-    })();
+    // Авто‑скролл вниз
+    const chat = document.getElementById("chat_window");
+    chat.scrollTop = chat.scrollHeight;
+
+    // Восстановление модели
+    const select = document.querySelector(".model-select");
+    const savedModel = localStorage.getItem("kvg_ai_model");
+    if (savedModel) select.value = savedModel;
+    select.addEventListener("change", () => {
+        localStorage.setItem("kvg_ai_model", select.value);
+    });
+
+    // Восстановление user_id
+    const stored = localStorage.getItem("kvg_ai_user_id");
+    const input = document.getElementById("user_id_input");
+    if (stored && input && (!input.value || input.value === "None")) {
+        input.value = stored;
+    }
 </script>
+
 {% endblock %}
