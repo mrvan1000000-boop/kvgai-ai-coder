@@ -1,0 +1,14 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<div class="card">
+  <div class="card-title">История запросов</div>
+
+  {% for item in items %}
+  <a href="/admin/ai-coder/history/item/{{ item.id }}" class="nav-item">
+    {{ item.created_at }} — {{ item.task[:60] }}...
+  </a>
+  {% endfor %}
+</div>
+
+{% endblock %}
