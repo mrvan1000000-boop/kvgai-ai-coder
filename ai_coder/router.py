@@ -22,7 +22,6 @@ try:
 except Exception:
     supabase = None
 
-
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 router = APIRouter()
@@ -44,8 +43,6 @@ def ai_coder_page(request: Request, user_id: str | None = None):
         "download": None,
         "user_id": user_id
     })
-
-
 
 
 # ---------------------------
@@ -100,7 +97,7 @@ def extract_zip_and_read(zip_file: UploadFile):
             try:
                 with open(full_path, "r", encoding="utf-8") as f:
                     content = f.read()
-            except:
+            except Exception:
                 continue
 
             files_data[relative_path] = content
@@ -179,11 +176,8 @@ async def ai_coder(
     zip: UploadFile = File(None),
     user_id: str = Form(None)
 ):
-    # ---------------------------
-    #  Память пользователя
-    # ---------------------------
     if not user_id:
-        user_id = str(uuid.uuid4())  # создаём нового пользователя
+        user_id = str(uuid.uuid4())
 
     file_contents = ""
     zip_contents = {}
@@ -232,13 +226,12 @@ async def ai_coder(
     download_url = f"/admin/ai-coder/download?path={fixed_zip_path}"
 
     return templates.TemplateResponse("ai_coder.html", {
-    "request": request,
-    "result": result,
-    "task": task,
-    "download": download_url,
-    "user_id": user_id
-})
-
+        "request": request,
+        "result": result,
+        "task": task,
+        "download": download_url,
+        "user_id": user_id
+    })
 
 
 # ---------------------------
@@ -249,13 +242,19 @@ def ai_coder_history(request: Request, user_id: str):
     if not supabase:
         return {"error": "Supabase не настроен"}
 
-    data = supabase.table("ai_coder_history").select("*").eq("user_id", user_id).order("created_at", {"ascending": False}).execute()
+    data = (
+        supabase.table("ai_coder_history")
+        .select("*")
+        .eq("user_id", user_id)
+        .order("created_at", ascending=False)
+        .execute()
+    )
+
     return templates.TemplateResponse("ai_coder_history.html", {
         "request": request,
         "items": data.data,
         "user_id": user_id
     })
-
 
 
 # ---------------------------
@@ -266,7 +265,14 @@ def ai_coder_history_item(request: Request, item_id: str):
     if not supabase:
         return {"error": "Supabase не настроен"}
 
-    data = supabase.table("ai_coder_history").select("*").eq("id", item_id).single().execute()
+    data = (
+        supabase.table("ai_coder_history")
+        .select("*")
+        .eq("id", item_id)
+        .single()
+        .execute()
+    )
+
     return templates.TemplateResponse("ai_coder_history_item.html", {
         "request": request,
         "item": data.data
