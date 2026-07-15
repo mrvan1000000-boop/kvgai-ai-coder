@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>AI-Coder помощник</title>
+<title>AI-Coder помощник (BETA)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
@@ -226,26 +226,48 @@ button[type="submit"]:active {
       </div>
     </div>
 
+    <!-- ОДНА корректная форма -->
     <form method="post" enctype="multipart/form-data">
 
-    <div class="form-group">
-        <label class="form-label">Задача</label>
-        <textarea name="task">{{ task }}</textarea>
-    </div>
+      <div class="form-section">
 
-    <div class="form-group">
-        <label class="form-label">Файл кода</label>
-        <input type="file" name="file">
-    </div>
+        <!-- Левая колонка: задача -->
+        <div>
+          <div class="form-group">
+            <label class="form-label">Задача</label>
+            <div class="form-helper">
+              Например: найди ошибки в коде, оптимизируй функцию, перепиши модуль...
+            </div>
+            <textarea name="task" placeholder="Опиши, что нужно сделать с кодом...">{{ task }}</textarea>
+          </div>
+        </div>
 
-    <div class="form-group">
-        <label class="form-label">ZIP проекта</label>
-        <input type="file" name="zip">
-    </div>
+        <!-- Правая колонка: файлы -->
+        <div class="file-row">
+          <div class="form-group">
+            <label class="form-label">Файл кода</label>
+            <div class="form-helper">
+              Один файл, например <code>main.py</code>.
+            </div>
+            <input type="file" name="file">
+          </div>
 
-    <button type="submit">Отправить</button>
-</form>
+          <div class="form-group">
+            <label class="form-label">ZIP проекта</label>
+            <div class="form-helper">
+              Архив всего проекта, если нужно проанализировать структуру.
+            </div>
+            <input type="file" name="zip">
+          </div>
+        </div>
 
+      </div>
+
+      <div class="button-row">
+        <button type="submit">Отправить</button>
+      </div>
+
+    </form>
 
     <div class="result-section">
       <div class="result-title">Результат</div>
