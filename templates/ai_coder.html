@@ -151,6 +151,7 @@
         contentDiv.appendChild(body);
         messageDiv.appendChild(contentDiv);
 
+        // Удаляем системное сообщение, если оно есть
         const systemMsg = chatWindow.querySelector('.message-system');
         if (systemMsg) systemMsg.remove();
 
@@ -195,7 +196,7 @@
             return;
         }
 
-        // 🟢 Сначала собираем FormData (до очистки)
+        // Формируем FormData (до очистки)
         const formData = new FormData();
         formData.append('task', task);
         formData.append('user_id', document.getElementById('user_id_input').value);
@@ -207,23 +208,35 @@
         addMessage('user', task || 'Файл прикреплён', true);
         taskInput.value = '';
         taskInput.style.height = 'auto';
-        clearFiles();  // Очищаем после того, как файл уже добавлен в FormData
+        clearFiles();
 
+        // Показываем индикатор печатания
         addTypingIndicator();
 
         submitBtn.disabled = true;
         submitBtn.innerHTML = '<span class="spinner"></span>';
 
         try {
+            // Устанавливаем таймаут 120 секунд
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 120000);
+
             const response = await fetch('/admin/ai-coder/api', {
                 method: 'POST',
-                body: formData
+                body: formData,
+                signal: controller.signal
             });
+            clearTimeout(timeoutId);
+
             const data = await response.json();
 
+            // Убираем индикатор
             removeTypingIndicator();
 
-            if (data.result) {
+            // Проверяем наличие ошибки
+            if (data.error) {
+                addMessage('system', 'Ошибка: ' + data.error);
+            } else if (data.result) {
                 addMessage('assistant', data.result);
                 // Обновляем или добавляем кнопку скачивания
                 const downloadArea = document.querySelector('.form-actions .download-link');
@@ -247,11 +260,15 @@
                     }
                 }
             } else {
-                addMessage('system', 'Ошибка получения ответа от сервера.');
+                addMessage('system', 'Неизвестный ответ от сервера.');
             }
         } catch (error) {
             removeTypingIndicator();
-            addMessage('system', 'Произошла ошибка соединения. Попробуйте позже.');
+            if (error.name === 'AbortError') {
+                addMessage('system', 'Превышено время ожидания ответа от сервера (120 сек).');
+            } else {
+                addMessage('system', 'Ошибка соединения: ' + error.message);
+            }
         } finally {
             submitBtn.disabled = false;
             submitBtn.innerHTML = '<i class="fas fa-arrow-up"></i>';
