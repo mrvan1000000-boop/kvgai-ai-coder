@@ -24,26 +24,22 @@ def call_qwen(messages):
             "X-Title": "KVG AI Studio"
         },
         json={
-            "model": "qwen/qwen3-coder:free",
+            "model": "google/gemma-4-26b-a4b-it:free",
             "messages": messages
         }
     )
 
     data = response.json()
 
-    # Если OpenRouter вернул ошибку — показываем её
+    # Обработка ошибок
     if "error" in data:
-        return f"❌ Ошибка OpenRouter:\n{data['error']}"
+        return f"❌ Ошибка OpenRouter:\n{data}"
 
-    if "message" in data and "choices" not in data:
-        return f"❌ Ответ без choices:\n{data}"
-
-    # Если нет choices — возвращаем весь ответ
     if "choices" not in data:
         return f"❌ Неверный ответ от OpenRouter:\n{data}"
 
-    # Нормальный ответ
     return data["choices"][0]["message"]["content"]
+
 
 
 
