@@ -201,8 +201,40 @@ body {
 /* ===== Сообщения ===== */
 .message {
     display: flex;
-    gap: 14px;
+    gap: 12px;
     animation: fadeSlide 0.3s ease;
+}
+.message-user {
+    flex-direction: row-reverse;
+}
+.message-user .message-content {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+}
+.message-user .message-label {
+    color: rgba(255,255,255,0.7);
+}
+.message-user .message-avatar {
+    background: var(--accent);
+    color: #fff;
+}
+.message-assistant .message-content {
+    background: var(--bg-card);
+    border-color: var(--border-color);
+}
+.message-assistant .message-avatar {
+    background: var(--border-color);
+    color: var(--text-primary);
+}
+.message-system .message-content {
+    background: transparent;
+    border: 1px dashed var(--border-color);
+    color: var(--text-secondary);
+}
+.message-system .message-avatar {
+    background: var(--text-muted);
+    color: var(--bg-primary);
 }
 
 @keyframes fadeSlide {
@@ -222,28 +254,13 @@ body {
     font-size: 14px;
 }
 
-.message-user .message-avatar {
-    background: var(--accent);
-    color: #fff;
-}
-
-.message-assistant .message-avatar {
-    background: var(--border-color);
-    color: var(--text-primary);
-}
-
-.message-system .message-avatar {
-    background: var(--text-muted);
-    color: var(--bg-primary);
-}
-
 .message-content {
     flex: 1;
-    background: var(--bg-card);
     padding: 14px 18px;
     border-radius: var(--radius-sm);
     border: 1px solid var(--border-color);
     overflow: hidden;
+    max-width: 80%;
 }
 
 .message-content .message-label {
@@ -251,7 +268,6 @@ body {
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: var(--text-muted);
     margin-bottom: 6px;
 }
 
@@ -273,13 +289,6 @@ body {
     position: relative;
 }
 
-.message-system .message-content {
-    background: transparent;
-    border: 1px dashed var(--border-color);
-    color: var(--text-secondary);
-}
-
-/* Кнопка копирования */
 .copy-btn {
     position: absolute;
     top: 8px;
@@ -302,157 +311,110 @@ body {
     color: var(--success);
 }
 
-/* ===== Форма ===== */
-.field {
+/* ===== Форма ввода ===== */
+.input-area {
     display: flex;
-    flex-direction: row;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 0;
-}
-
-.field-label {
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text-secondary);
-    white-space: nowrap;
-}
-
-textarea {
-    width: 100%;
-    min-height: 80px;
+    gap: 12px;
+    align-items: flex-end;
     background: var(--bg-input);
+    border-radius: var(--radius);
     border: 1px solid var(--border-color);
-    border-radius: var(--radius-sm);
-    padding: 12px 14px;
-    color: var(--text-primary);
-    font-size: 15px;
-    font-family: var(--font);
+    padding: 6px 12px;
     transition: var(--transition);
-    resize: vertical;
 }
-
-textarea:focus {
-    outline: none;
+.input-area:focus-within {
     border-color: var(--accent);
     box-shadow: 0 0 0 3px var(--accent-soft);
 }
-
-.field-row {
-    display: flex;
-    gap: 16px;
-    flex-wrap: wrap;
-    align-items: center;
-    margin-bottom: 12px;
+.input-area textarea {
+    flex: 1;
+    background: transparent;
+    border: none;
+    padding: 10px 0;
+    color: var(--text-primary);
+    font-size: 15px;
+    resize: none;
+    min-height: 44px;
+    max-height: 150px;
+    font-family: var(--font);
 }
-
-/* Компактные зоны для файлов */
-.file-drop-zone {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 14px;
-    border: 2px dashed var(--border-color);
-    border-radius: 999px;
-    background: var(--bg-input);
-    cursor: pointer;
-    transition: var(--transition);
-    font-size: 14px;
-    color: var(--text-secondary);
-    min-height: 38px;
-    width: fit-content;
+.input-area textarea:focus {
+    outline: none;
+    box-shadow: none;
 }
-
-.file-drop-zone i {
-    font-size: 16px;
+.input-area textarea::placeholder {
     color: var(--text-muted);
 }
-
-.file-drop-zone .file-name {
-    color: var(--text-primary);
-    font-weight: 500;
-    margin-left: 4px;
-    max-width: 120px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.file-drop-zone.dragover {
-    border-color: var(--accent);
-    background: var(--accent-soft);
-}
-
-.file-drop-zone input[type="file"] {
-    display: none;
-}
-
-/* ===== Кнопки ===== */
-.form-actions {
+.input-actions {
     display: flex;
-    gap: 12px;
-    flex-wrap: wrap;
-    margin-top: 8px;
+    gap: 6px;
+    align-items: center;
+    flex-shrink: 0;
 }
-
-.btn {
+.file-attach-btn {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    padding: 10px 22px;
-    border-radius: 999px;
-    font-weight: 600;
-    font-size: 15px;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    cursor: pointer;
+    color: var(--text-muted);
+    transition: var(--transition);
+}
+.file-attach-btn:hover {
+    background: var(--accent-soft);
+    color: var(--text-primary);
+}
+.btn-send {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
     border: none;
     cursor: pointer;
     transition: var(--transition);
-    text-decoration: none;
 }
-
-.btn-primary {
-    background: var(--accent);
-    color: #fff;
-    box-shadow: 0 8px 24px rgba(95, 138, 255, 0.35);
-}
-
-.btn-primary:hover {
+.btn-send:hover:not(:disabled) {
     background: var(--accent-hover);
-    transform: translateY(-2px);
-    box-shadow: 0 12px 32px rgba(95, 138, 255, 0.45);
+    transform: scale(1.05);
 }
-
-.btn-primary:disabled {
+.btn-send:disabled {
     opacity: 0.5;
     cursor: not-allowed;
     transform: none;
 }
-
-.btn-secondary {
+.file-preview {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    margin-top: 6px;
     background: var(--bg-card);
-    color: var(--text-primary);
-    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    color: var(--text-secondary);
 }
-
-.btn-secondary:hover {
-    background: var(--border-color);
+.file-preview span {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
-
-.btn-success {
-    background: var(--success);
-    color: #0b0d14;
+.btn-remove-file {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px;
 }
-
-/* Spinner */
-.spinner {
-    display: inline-block;
-    width: 18px;
-    height: 18px;
-    border: 2px solid rgba(255,255,255,0.3);
-    border-radius: 50%;
-    border-top-color: #fff;
-    animation: spin 0.6s linear infinite;
+.btn-remove-file:hover {
+    color: var(--danger);
 }
-@keyframes spin { to { transform: rotate(360deg); } }
 
 /* ===== История ===== */
 .card {
@@ -531,22 +493,8 @@ textarea:focus {
         padding: 12px;
     }
 
-    .field-row {
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    .field {
-        flex-wrap: wrap;
-    }
-
-    .file-drop-zone {
-        width: 100%;
-        justify-content: center;
-    }
-
-    .chat-window {
-        padding: 12px;
+    .message-content {
+        max-width: 90%;
     }
 }
 
