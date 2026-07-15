@@ -115,8 +115,13 @@ async def ai_coder(
         file_contents = file.file.read().decode("utf-8", errors="ignore")
 
     # Чтение ZIP — распаковка и анализ всех файлов
-    if zip:
+    zip_contents = {}
+
+if zip and zip.filename:
+    try:
         zip_contents = extract_zip_and_read(zip)
+    except zipfile.BadZipFile:
+        zip_contents = {"error": "Файл не является ZIP-архивом"}
 
     # Формируем сообщение для модели
     messages = [
