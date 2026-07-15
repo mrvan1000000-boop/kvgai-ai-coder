@@ -5,14 +5,25 @@ import shutil
 import os
 import requests
 import zipfile
+import uuid
 
-from supabase import create_client, Client
+# ---------------------------
+#  SUPABASE
+# ---------------------------
+try:
+    from supabase import create_client, Client
+    SUPABASE_URL = os.getenv("SUPABASE_URL")
+    SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+    if SUPABASE_URL and SUPABASE_KEY:
+        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    else:
+        supabase = None
+except Exception:
+    supabase = None
+
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -138,8 +149,12 @@ def create_fixed_zip(fixed_files: dict):
 # ---------------------------
 #  Сохранение истории в Supabase
 # ---------------------------
-def save_history(task, file_names, zip_files, model_output):
+def save_history(user_id, task, file_names, zip_files, model_output):
+    if not supabase:
+        return
+
     supabase.table("ai_coder_history").insert({
+        "user_id": user_id,
         "task": task,
         "file_names": file_names,
         "zip_files": zip_files,
@@ -155,8 +170,15 @@ async def ai_coder(
     request: Request,
     task: str = Form(...),
     file: UploadFile = File(None),
-    zip: UploadFile = File(None)
+    zip: UploadFile = File(None),
+    user_id: str = Form(None)
 ):
+    # ---------------------------
+    #  Память пользователя
+    # ---------------------------
+    if not user_id:
+        user_id = str(uuid.uuid4())  # создаём нового пользователя
+
     file_contents = ""
     zip_contents = {}
 
@@ -173,6 +195,7 @@ async def ai_coder(
         {
             "role": "user",
             "content": (
+                f"User ID: {user_id}\n"
                 f"Task: {task}\n\n"
                 f"Single file contents:\n{file_contents}\n\n"
                 f"ZIP project contents:\n" +
@@ -190,6 +213,7 @@ async def ai_coder(
     result = call_model(messages)
 
     save_history(
+        user_id=user_id,
         task=task,
         file_names=file.filename if file else "",
         zip_files=zip.filename if zip else "",
@@ -205,27 +229,35 @@ async def ai_coder(
         "request": request,
         "result": result,
         "task": task,
-        "download": download_url
+        "download": download_url,
+        "user_id": user_id
     })
 
 
 # ---------------------------
 #  История — список
 # ---------------------------
-@router.get("/admin/ai-coder/history")
-def ai_coder_history(request: Request):
-    data = supabase.table("ai_coder_history").select("*").order("created_at", desc=True).execute()
+@router.get("/admin/ai-coder/history/{user_id}")
+def ai_coder_history(request: Request, user_id: str):
+    if not supabase:
+        return {"error": "Supabase не настроен"}
+
+    data = supabase.table("ai_coder_history").select("*").eq("user_id", user_id).order("created_at", desc=True).execute()
     return templates.TemplateResponse("ai_coder_history.html", {
         "request": request,
-        "items": data.data
+        "items": data.data,
+        "user_id": user_id
     })
 
 
 # ---------------------------
 #  История — один элемент
 # ---------------------------
-@router.get("/admin/ai-coder/history/{item_id}")
+@router.get("/admin/ai-coder/history/item/{item_id}")
 def ai_coder_history_item(request: Request, item_id: str):
+    if not supabase:
+        return {"error": "Supabase не настроен"}
+
     data = supabase.table("ai_coder_history").select("*").eq("id", item_id).single().execute()
     return templates.TemplateResponse("ai_coder_history_item.html", {
         "request": request,
