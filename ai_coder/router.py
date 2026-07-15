@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Request, UploadFile, File, Form
+from fastapi.responses import JSONResponse  # ← импорт в начале
 from fastapi.templating import Jinja2Templates
 import tempfile
 import shutil
@@ -6,19 +7,7 @@ import os
 import requests
 import zipfile
 import uuid
-
 import mimetypes
-
-def safe_read_file(upload: UploadFile):
-    mime, _ = mimetypes.guess_type(upload.filename)
-
-    # Если текстовый файл — читаем
-    if mime and mime.startswith("text"):
-        return upload.file.read().decode("utf-8", errors="ignore")
-
-    # Если бинарный файл — не читаем
-    return f"<binary file: {upload.filename}>"
-
 
 # ---------------------------
 #  SUPABASE
@@ -27,7 +16,6 @@ try:
     from supabase import create_client, Client
     SUPABASE_URL = os.getenv("SUPABASE_URL")
     SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-
     if SUPABASE_URL and SUPABASE_KEY:
         supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
     else:
@@ -48,44 +36,42 @@ AVAILABLE_MODELS = [
     "tencent/hy3:free",
     "qwen/qwen3-coder:free",
 ]
+
 def call_model_with_fallback(messages, primary_model):
     MODELS = [
         primary_model,
         "qwen/qwen3-coder:free",
         "tencent/hy3:free",
-        "google/gemma-4-26b-a4b-it",  # платная fallback
+        "google/gemma-4-26b-a4b-it",
     ]
-
     for model in MODELS:
-        response = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://dalvideo.ru",
-                "X-Title": "KVG AI Studio"
-            },
-            json={
-                "model": model,
-                "messages": messages
-            }
-        ).json()
-
-        if "error" in response:
-            err = response["error"]
-            if err.get("code") == 429:
-                continue  # лимит → пробуем следующую модель
-            else:
-                return f"❌ Ошибка модели {model}:\n{response}"
-
-        if "choices" in response:
-            return response["choices"][0]["message"]["content"]
-
+        try:
+            response = requests.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://dalvideo.ru",
+                    "X-Title": "KVG AI Studio"
+                },
+                json={"model": model, "messages": messages},
+                timeout=60
+            ).json()
+            if "error" in response:
+                err = response["error"]
+                if err.get("code") == 429:
+                    continue
+                else:
+                    return f"❌ Ошибка модели {model}:\n{response}"
+            if "choices" in response:
+                return response["choices"][0]["message"]["content"]
+        except Exception as e:
+            continue
     return "❌ Все модели недоступны. Попробуй позже."
+
 def extract_zip_and_read(zip_file: UploadFile):
     temp_dir = tempfile.mkdtemp()
     zip_path = os.path.join(temp_dir, "uploaded.zip")
-
     with open(zip_path, "wb") as f:
         shutil.copyfileobj(zip_file.file, f)
 
@@ -103,15 +89,12 @@ def extract_zip_and_read(zip_file: UploadFile):
             except Exception:
                 continue
             files_data[relative_path] = content
-
     return files_data
-
 
 def parse_fixed_files(model_output: str):
     fixed = {}
     current_path = None
     current_content = []
-
     for line in model_output.splitlines():
         if line.startswith("--- ") and line.endswith(" ---"):
             if current_path:
@@ -121,34 +104,25 @@ def parse_fixed_files(model_output: str):
         else:
             if current_path:
                 current_content.append(line)
-
     if current_path:
         fixed[current_path] = "\n".join(current_content)
-
     return fixed
-
 
 def create_fixed_zip(fixed_files: dict):
     temp_dir = tempfile.mkdtemp()
     zip_path = os.path.join(temp_dir, "fixed_project.zip")
-
     with zipfile.ZipFile(zip_path, "w") as zipf:
         for path, content in fixed_files.items():
             full_path = os.path.join(temp_dir, path)
             os.makedirs(os.path.dirname(full_path), exist_ok=True)
-
             with open(full_path, "w", encoding="utf-8") as f:
                 f.write(content)
-
             zipf.write(full_path, arcname=path)
-
     return zip_path
-
 
 def save_history(user_id, task, file_names, zip_files, model_output):
     if not supabase:
         return
-
     supabase.table("ai_coder_history").insert({
         "user_id": user_id,
         "task": task,
@@ -156,6 +130,7 @@ def save_history(user_id, task, file_names, zip_files, model_output):
         "zip_files": zip_files,
         "model_output": model_output
     }).execute()
+
 def save_message(user_id: str, role: str, content: str):
     if not supabase:
         return
@@ -165,39 +140,31 @@ def save_message(user_id: str, role: str, content: str):
         "content": content
     }).execute()
 
-
 def load_messages(user_id: str, limit: int = 10):
     if not supabase:
         return []
+    data = supabase.table("ai_coder_messages").select("*").eq("user_id", user_id).execute()
+    items = sorted(data.data, key=lambda x: x["created_at"], reverse=True)[:limit]
+    return [{"role": msg["role"], "content": msg["content"]} for msg in reversed(items)]
 
-    data = (
-        supabase.table("ai_coder_messages")
-        .select("*")
-        .eq("user_id", user_id)
-        .execute()
-    )
-
-    items = sorted(data.data, key=lambda x: x["created_at"], reverse=True)
-    items = items[:limit]
-
-    formatted = [
-        {"role": msg["role"], "content": msg["content"]}
-        for msg in reversed(items)
-    ]
-
-    return formatted
+# ========== GET /admin/ai-coder ==========
 @router.get("/admin/ai-coder")
 def ai_coder_page(request: Request, user_id: str | None = None):
-    if not user_id:
-        user_id = str(uuid.uuid4())
+    try:
+        if not user_id:
+            user_id = str(uuid.uuid4())
+        return templates.TemplateResponse("ai_coder.html", {
+            "request": request,
+            "result": None,
+            "task": "",
+            "download": None,
+            "user_id": user_id
+        })
+    except Exception as e:
+        # Если ошибка в шаблоне, покажем её в ответе
+        return JSONResponse({"error": f"Ошибка рендеринга: {str(e)}"}, status_code=500)
 
-    return templates.TemplateResponse("ai_coder.html", {
-        "request": request,
-        "result": None,
-        "task": "",
-        "download": None,
-        "user_id": user_id
-    })
+# ========== POST /admin/ai-coder (синхронная версия) ==========
 @router.post("/admin/ai-coder")
 async def ai_coder(
     request: Request,
@@ -208,7 +175,6 @@ async def ai_coder(
 ):
     if not user_id:
         user_id = str(uuid.uuid4())
-
     if not model:
         model = AVAILABLE_MODELS[0]
 
@@ -229,7 +195,6 @@ async def ai_coder(
             file_contents = file.file.read().decode("utf-8", errors="ignore")
 
     history = load_messages(user_id)
-
     current_message = {
         "role": "user",
         "content": (
@@ -237,34 +202,18 @@ async def ai_coder(
             f"Task: {task}\n\n"
             f"Single file contents:\n{file_contents}\n\n"
             f"ZIP project contents:\n" +
-            "\n".join(
-                f"--- {path} ---\n{content}\n"
-                for path, content in zip_contents.items()
-            ) +
-            "\n\n"
-            "Исправь ошибки, оптимизируй код и верни исправленные файлы "
-            "в формате:\n--- path/to/file.py ---\n<исправленный код>"
+            "\n".join(f"--- {path} ---\n{content}\n" for path, content in zip_contents.items()) +
+            "\n\nИсправь ошибки, оптимизируй код и верни исправленные файлы в формате:\n--- path/to/file.py ---\n<исправленный код>"
         )
     }
-
     messages = history + [current_message]
-
     result = call_model_with_fallback(messages, model)
-
     save_message(user_id, "user", current_message["content"])
     save_message(user_id, "assistant", result)
-
-    save_history(
-        user_id=user_id,
-        task=task,
-        file_names=file_name if not is_zip else "",
-        zip_files=file_name if is_zip else "",
-        model_output=result
-    )
+    save_history(user_id, task, file_name if not is_zip else "", file_name if is_zip else "", result)
 
     fixed_files = parse_fixed_files(result)
     fixed_zip_path = create_fixed_zip(fixed_files)
-
     download_url = f"/admin/ai-coder/download?path={fixed_zip_path}"
 
     return templates.TemplateResponse("ai_coder.html", {
@@ -274,53 +223,8 @@ async def ai_coder(
         "download": download_url,
         "user_id": user_id
     })
-@router.get("/admin/ai-coder/history/{user_id}")
-def ai_coder_history(request: Request, user_id: str):
-    if not supabase:
-        return {"error": "Supabase не настроен"}
 
-    data = (
-        supabase.table("ai_coder_history")
-        .select("*")
-        .eq("user_id", user_id)
-        .execute()
-    )
-
-    items = sorted(data.data, key=lambda x: x["created_at"], reverse=True)
-
-    return templates.TemplateResponse("ai_coder_history.html", {
-        "request": request,
-        "items": items,
-        "user_id": user_id
-    })
-
-
-@router.get("/admin/ai-coder/history/item/{item_id}")
-def ai_coder_history_item(request: Request, item_id: str):
-    if not supabase:
-        return {"error": "Supabase не настроен"}
-
-    data = (
-        supabase.table("ai_coder_history")
-        .select("*")
-        .eq("id", item_id)
-        .single()
-        .execute()
-    )
-
-    return templates.TemplateResponse("ai_coder_history_item.html", {
-        "request": request,
-        "item": data.data
-    })
-
-
-@router.get("/admin/ai-coder/download")
-def download_file(path: str):
-    with open(path, "rb") as f:
-        return f.read()
-
-from fastapi.responses import JSONResponse
-
+# ========== API для AJAX (асинхронный) ==========
 @router.post("/admin/ai-coder/api")
 async def ai_coder_api(
     task: str = Form(...),
@@ -328,69 +232,82 @@ async def ai_coder_api(
     model: str = Form(None),
     user_id: str = Form(None)
 ):
-    if not user_id:
-        user_id = str(uuid.uuid4())
+    try:
+        if not user_id:
+            user_id = str(uuid.uuid4())
+        if not model:
+            model = AVAILABLE_MODELS[0]
 
-    if not model:
-        model = AVAILABLE_MODELS[0]
+        file_contents = ""
+        zip_contents = {}
+        file_name = ""
+        is_zip = False
 
-    file_contents = ""
-    zip_contents = {}
-    file_name = ""
-    is_zip = False
+        if file and file.filename:
+            file_name = file.filename
+            if file.filename.lower().endswith('.zip') or file.content_type == 'application/zip':
+                is_zip = True
+                try:
+                    zip_contents = extract_zip_and_read(file)
+                except zipfile.BadZipFile:
+                    zip_contents = {"error": "Файл не является ZIP-архивом"}
+            else:
+                file_contents = file.file.read().decode("utf-8", errors="ignore")
 
-    if file and file.filename:
-        file_name = file.filename
-        if file.filename.lower().endswith('.zip') or file.content_type == 'application/zip':
-            is_zip = True
-            try:
-                zip_contents = extract_zip_and_read(file)
-            except zipfile.BadZipFile:
-                zip_contents = {"error": "Файл не является ZIP-архивом"}
-        else:
-            file_contents = file.file.read().decode("utf-8", errors="ignore")
+        history = load_messages(user_id)
+        current_message = {
+            "role": "user",
+            "content": (
+                f"User ID: {user_id}\n"
+                f"Task: {task}\n\n"
+                f"Single file contents:\n{file_contents}\n\n"
+                f"ZIP project contents:\n" +
+                "\n".join(f"--- {path} ---\n{content}\n" for path, content in zip_contents.items()) +
+                "\n\nИсправь ошибки, оптимизируй код и верни исправленные файлы в формате:\n--- path/to/file.py ---\n<исправленный код>"
+            )
+        }
+        messages = history + [current_message]
+        result = call_model_with_fallback(messages, model)
+        save_message(user_id, "user", current_message["content"])
+        save_message(user_id, "assistant", result)
+        save_history(user_id, task, file_name if not is_zip else "", file_name if is_zip else "", result)
 
-    history = load_messages(user_id)
+        fixed_files = parse_fixed_files(result)
+        fixed_zip_path = create_fixed_zip(fixed_files)
+        download_url = f"/admin/ai-coder/download?path={fixed_zip_path}"
 
-    current_message = {
-        "role": "user",
-        "content": (
-            f"User ID: {user_id}\n"
-            f"Task: {task}\n\n"
-            f"Single file contents:\n{file_contents}\n\n"
-            f"ZIP project contents:\n" +
-            "\n".join(
-                f"--- {path} ---\n{content}\n"
-                for path, content in zip_contents.items()
-            ) +
-            "\n\n"
-            "Исправь ошибки, оптимизируй код и верни исправленные файлы "
-            "в формате:\n--- path/to/file.py ---\n<исправленный код>"
-        )
-    }
+        return JSONResponse({
+            "result": result,
+            "download_url": download_url,
+            "user_id": user_id
+        })
+    except Exception as e:
+        return JSONResponse({"error": f"Ошибка: {str(e)}"}, status_code=500)
 
-    messages = history + [current_message]
-
-    result = call_model_with_fallback(messages, model)
-
-    save_message(user_id, "user", current_message["content"])
-    save_message(user_id, "assistant", result)
-
-    save_history(
-        user_id=user_id,
-        task=task,
-        file_names=file_name if not is_zip else "",
-        zip_files=file_name if is_zip else "",
-        model_output=result
-    )
-
-    fixed_files = parse_fixed_files(result)
-    fixed_zip_path = create_fixed_zip(fixed_files)
-
-    download_url = f"/admin/ai-coder/download?path={fixed_zip_path}"
-
-    return JSONResponse({
-        "result": result,
-        "download_url": download_url,
+# ========== История ==========
+@router.get("/admin/ai-coder/history/{user_id}")
+def ai_coder_history(request: Request, user_id: str):
+    if not supabase:
+        return {"error": "Supabase не настроен"}
+    data = supabase.table("ai_coder_history").select("*").eq("user_id", user_id).execute()
+    items = sorted(data.data, key=lambda x: x["created_at"], reverse=True)
+    return templates.TemplateResponse("ai_coder_history.html", {
+        "request": request,
+        "items": items,
         "user_id": user_id
     })
+
+@router.get("/admin/ai-coder/history/item/{item_id}")
+def ai_coder_history_item(request: Request, item_id: str):
+    if not supabase:
+        return {"error": "Supabase не настроен"}
+    data = supabase.table("ai_coder_history").select("*").eq("id", item_id).single().execute()
+    return templates.TemplateResponse("ai_coder_history_item.html", {
+        "request": request,
+        "item": data.data
+    })
+
+@router.get("/admin/ai-coder/download")
+def download_file(path: str):
+    with open(path, "rb") as f:
+        return f.read()
