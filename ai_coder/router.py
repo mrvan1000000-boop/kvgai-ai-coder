@@ -34,11 +34,12 @@ templates = Jinja2Templates(directory="templates")
 # ---------------------------
 @router.get("/admin/ai-coder")
 def ai_coder_page(request: Request):
-    return templates.TemplateResponse("admin_ai_coder.html", {
+    return templates.TemplateResponse("ai_coder.html", {
         "request": request,
-        "result": None,
-        "task": "",
-        "download": None
+        "result": result,
+        "task": task,
+        "download": download_url,
+        "user_id": user_id
     })
 
 
