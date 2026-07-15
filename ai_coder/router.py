@@ -150,7 +150,7 @@ def create_fixed_zip(fixed_files: dict):
 
 
 # ---------------------------
-#  Сохранение истории в Supabase
+#  Сохранение истории задач
 # ---------------------------
 def save_history(user_id, task, file_names, zip_files, model_output):
     if not supabase:
@@ -163,6 +163,41 @@ def save_history(user_id, task, file_names, zip_files, model_output):
         "zip_files": zip_files,
         "model_output": model_output
     }).execute()
+
+
+# ---------------------------
+#  Память сообщений
+# ---------------------------
+def save_message(user_id: str, role: str, content: str):
+    if not supabase:
+        return
+    supabase.table("ai_coder_messages").insert({
+        "user_id": user_id,
+        "role": role,
+        "content": content
+    }).execute()
+
+
+def load_messages(user_id: str, limit: int = 10):
+    if not supabase:
+        return []
+
+    data = (
+        supabase.table("ai_coder_messages")
+        .select("*")
+        .eq("user_id", user_id)
+        .execute()
+    )
+
+    items = sorted(data.data, key=lambda x: x["created_at"], reverse=True)
+    items = items[:limit]
+
+    formatted = [
+        {"role": msg["role"], "content": msg["content"]}
+        for msg in reversed(items)
+    ]
+
+    return formatted
 
 
 # ---------------------------
@@ -191,60 +226,59 @@ async def ai_coder(
         except zipfile.BadZipFile:
             zip_contents = {"error": "Файл не является ZIP-архивом"}
 
-        # Загружаем память сообщений
-        history = load_messages(user_id)
-    
-        # Формируем текущее сообщение
-        current_message = {
-            "role": "user",
-            "content": (
-                f"User ID: {user_id}\n"
-                f"Task: {task}\n\n"
-                f"Single file contents:\n{file_contents}\n\n"
-                f"ZIP project contents:\n" +
-                "\n".join(
-                    f"--- {path} ---\n{content}\n"
-                    for path, content in zip_contents.items()
-                ) +
-                "\n\n"
-                "Исправь ошибки, оптимизируй код и верни исправленные файлы "
-                "в формате:\n--- path/to/file.py ---\n<исправленный код>"
-            )
-        }
-    
-        # Финальный контекст для модели
-        messages = history + [current_message]
-    
-        # Вызов модели
-        result = call_model(messages)
-    
-        # Сохраняем сообщения в память
-        save_message(user_id, "user", current_message["content"])
-        save_message(user_id, "assistant", result)
-    
-        # Сохраняем историю задач
-        save_history(
-            user_id=user_id,
-            task=task,
-            file_names=file.filename if file else "",
-            zip_files=zip.filename if zip else "",
-            model_output=result
-        )
-    
-        # Обработка ZIP
-        fixed_files = parse_fixed_files(result)
-        fixed_zip_path = create_fixed_zip(fixed_files)
-    
-        download_url = f"/admin/ai-coder/download?path={fixed_zip_path}"
-    
-        return templates.TemplateResponse("ai_coder.html", {
-            "request": request,
-            "result": result,
-            "task": task,
-            "download": download_url,
-            "user_id": user_id
-        })
+    # Загружаем память сообщений
+    history = load_messages(user_id)
 
+    # Формируем текущее сообщение
+    current_message = {
+        "role": "user",
+        "content": (
+            f"User ID: {user_id}\n"
+            f"Task: {task}\n\n"
+            f"Single file contents:\n{file_contents}\n\n"
+            f"ZIP project contents:\n" +
+            "\n".join(
+                f"--- {path} ---\n{content}\n"
+                for path, content in zip_contents.items()
+            ) +
+            "\n\n"
+            "Исправь ошибки, оптимизируй код и верни исправленные файлы "
+            "в формате:\n--- path/to/file.py ---\n<исправленный код>"
+        )
+    }
+
+    # Финальный контекст для модели
+    messages = history + [current_message]
+
+    # Вызов модели
+    result = call_model(messages)
+
+    # Сохраняем сообщения в память
+    save_message(user_id, "user", current_message["content"])
+    save_message(user_id, "assistant", result)
+
+    # Сохраняем историю задач
+    save_history(
+        user_id=user_id,
+        task=task,
+        file_names=file.filename if file else "",
+        zip_files=zip.filename if zip else "",
+        model_output=result
+    )
+
+    # Обработка ZIP
+    fixed_files = parse_fixed_files(result)
+    fixed_zip_path = create_fixed_zip(fixed_files)
+
+    download_url = f"/admin/ai-coder/download?path={fixed_zip_path}"
+
+    return templates.TemplateResponse("ai_coder.html", {
+        "request": request,
+        "result": result,
+        "task": task,
+        "download": download_url,
+        "user_id": user_id
+    })
 
 
 # ---------------------------
@@ -262,7 +296,6 @@ def ai_coder_history(request: Request, user_id: str):
         .execute()
     )
 
-    # сортировка вручную — единственный рабочий способ
     items = sorted(data.data, key=lambda x: x["created_at"], reverse=True)
 
     return templates.TemplateResponse("ai_coder_history.html", {
@@ -301,42 +334,3 @@ def ai_coder_history_item(request: Request, item_id: str):
 def download_file(path: str):
     with open(path, "rb") as f:
         return f.read()
-
-
-# ---------------------------
-#  Память сообщений
-# ---------------------------
-def save_message(user_id: str, role: str, content: str):
-    if not supabase:
-        return
-    supabase.table("ai_coder_messages").insert({
-        "user_id": user_id,
-        "role": role,
-        "content": content
-    }).execute()
-
-
-def load_messages(user_id: str, limit: int = 10):
-    if not supabase:
-        return []
-
-    data = (
-        supabase.table("ai_coder_messages")
-        .select("*")
-        .eq("user_id", user_id)
-        .execute()
-    )
-
-    # сортировка вручную
-    items = sorted(data.data, key=lambda x: x["created_at"], reverse=True)
-
-    # берём последние N сообщений
-    items = items[:limit]
-
-    # превращаем в формат OpenRouter
-    formatted = [
-        {"role": msg["role"], "content": msg["content"]}
-        for msg in reversed(items)
-    ]
-
-    return formatted
