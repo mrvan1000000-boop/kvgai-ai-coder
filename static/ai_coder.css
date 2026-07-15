@@ -1,0 +1,307 @@
+:root {
+    --bg: #05060a;
+    --bg-elevated: #0b0e16;
+    --border-subtle: #1b1f2b;
+    --accent: #4f8cff;
+    --accent-soft: rgba(79, 140, 255, 0.15);
+    --text-main: #f5f7ff;
+    --text-muted: #9aa0b8;
+    --danger: #ff4f6b;
+    --radius-lg: 18px;
+    --radius-md: 12px;
+    --radius-sm: 8px;
+    --shadow-soft: 0 18px 45px rgba(0, 0, 0, 0.55);
+    --shadow-subtle: 0 10px 30px rgba(0, 0, 0, 0.35);
+    --font-main: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body.app {
+    margin: 0;
+    padding: 0;
+    background: radial-gradient(circle at top, #141726 0, #05060a 55%);
+    color: var(--text-main);
+    font-family: var(--font-main);
+}
+
+.app-shell {
+    display: flex;
+    min-height: 100vh;
+}
+
+/* Sidebar */
+
+.sidebar {
+    width: 280px;
+    padding: 20px 18px;
+    border-right: 1px solid var(--border-subtle);
+    background: linear-gradient(180deg, #05060a 0, #05060a 40%, #080a12 100%);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.logo {
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    font-size: 14px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.subtitle {
+    margin-top: 4px;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-main);
+}
+
+.sidebar-nav {
+    margin-top: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.nav-item {
+    display: block;
+    padding: 9px 11px;
+    border-radius: var(--radius-md);
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 14px;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.nav-item:hover {
+    background: var(--accent-soft);
+    color: var(--text-main);
+}
+
+.sidebar-footer {
+    margin-top: auto;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-subtle);
+}
+
+.user-pill {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 10px;
+    border-radius: var(--radius-md);
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.user-avatar {
+    width: 30px;
+    height: 30px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    color: var(--accent);
+    font-weight: 600;
+}
+
+.user-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.user-name {
+    font-size: 13px;
+    color: var(--text-main);
+}
+
+.user-id {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+/* Main */
+
+.main {
+    flex: 1;
+    padding: 26px 32px;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+}
+
+.chat-container {
+    width: 100%;
+    max-width: 880px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.chat-header h1 {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 600;
+}
+
+.chat-header p {
+    margin: 6px 0 0;
+    font-size: 14px;
+    color: var(--text-muted);
+}
+
+/* Chat window */
+
+.chat-window {
+    border-radius: var(--radius-lg);
+    background: radial-gradient(circle at top left, #141726 0, #080a12 55%);
+    box-shadow: var(--shadow-soft);
+    padding: 18px 18px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+.message {
+    border-radius: var(--radius-md);
+    padding: 10px 11px;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.message-system {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px dashed var(--border-subtle);
+}
+
+.message-user {
+    background: rgba(79, 140, 255, 0.08);
+    border: 1px solid rgba(79, 140, 255, 0.35);
+}
+
+.message-assistant {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.message-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+}
+
+.message-body {
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-main);
+}
+
+.message-body pre {
+    margin: 0;
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 12px;
+    background: rgba(0, 0, 0, 0.35);
+    border-radius: var(--radius-md);
+    padding: 10px 11px;
+    overflow-x: auto;
+}
+
+/* Form */
+
+.chat-form {
+    margin-top: 6px;
+    border-radius: var(--radius-lg);
+    background: #080a12;
+    box-shadow: var(--shadow-subtle);
+    padding: 16px 18px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.field-row {
+    display: flex;
+    gap: 12px;
+}
+
+.field-label {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+textarea {
+    resize: vertical;
+    min-height: 70px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-subtle);
+    background: #05060a;
+    color: var(--text-main);
+    padding: 9px 10px;
+    font-size: 13px;
+    font-family: var(--font-main);
+}
+
+textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px rgba(79, 140, 255, 0.45);
+}
+
+input[type="file"] {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.form-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 4px;
+}
+
+.btn-primary,
+.btn-secondary {
+    border-radius: 999px;
+    padding: 8px 16px;
+    font-size: 13px;
+    border: none;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-primary {
+    background: var(--accent);
+    color: #fff;
+    box-shadow: 0 10px 25px rgba(79, 140, 255, 0.45);
+}
+
+.btn-primary:hover {
+    filter: brightness(1.05);
+}
+
+.btn-secondary {
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-main);
+    border: 1px solid var(--border-subtle);
+}
+
+.btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
