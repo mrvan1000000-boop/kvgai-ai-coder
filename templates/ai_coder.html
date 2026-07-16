@@ -248,6 +248,8 @@
 
         const task = taskInput.value.trim();
         if (!task && !fileInput.files.length) {
+            // Если нет задачи и нет файла – ничего не делаем
+            console.warn('⚠️ Нет задачи и файла – отправка отменена');
             return;
         }
 
@@ -290,7 +292,6 @@
 
         try {
             const controller = new AbortController();
-            // ТАЙМАУТ 200 СЕКУНД
             const timeoutId = setTimeout(() => controller.abort(), 200000);
 
             const response = await fetch('/admin/ai-coder/api', {
@@ -300,18 +301,29 @@
             });
             clearTimeout(timeoutId);
 
+            // Читаем ответ как текст (чтобы избежать ошибки body stream already read)
+            const responseText = await response.text();
+
             if (!response.ok) {
-                let errorText = '';
+                let errorText = responseText;
+                // Пытаемся распарсить JSON, если получится
                 try {
-                    const errData = await response.json();
+                    const errData = JSON.parse(responseText);
                     errorText = errData.error || errData.message || `HTTP ${response.status}`;
                 } catch {
-                    errorText = await response.text() || `HTTP ${response.status}`;
+                    // Если не JSON – оставляем как есть
                 }
                 throw new Error(errorText);
             }
 
-            const data = await response.json();
+            // Парсим JSON из текста
+            let data;
+            try {
+                data = JSON.parse(responseText);
+            } catch {
+                throw new Error('Неверный формат ответа от сервера');
+            }
+
             removeTypingIndicator();
 
             if (data.error) {
