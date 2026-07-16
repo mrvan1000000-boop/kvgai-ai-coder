@@ -112,12 +112,10 @@ def call_model_with_fallback(messages, primary_model):
     # затем все из AVAILABLE_MODELS (без дубликатов),
     # в конце платная fallback-модель OpenRouter
     base_models = [primary_model] + AVAILABLE_MODELS
-    # Добавляем платную модель, если её нет в списке
-    paid_fallback = "openrouter:google/gemma-4-26b-a4b-it"  # платная версия
+    paid_fallback = "openrouter:google/gemma-4-26b-a4b-it"
     if paid_fallback not in base_models:
         base_models.append(paid_fallback)
     
-    # Убираем дубликаты, сохраняя порядок
     seen = set()
     unique_models = []
     for m in base_models:
@@ -166,7 +164,6 @@ def call_model_with_fallback(messages, primary_model):
                 logger.warning(f"Model {full_model} timeout ({timeout}s), trying next")
                 continue
             except requests.exceptions.RequestException as e:
-                # Обработка HTTP-ошибок
                 if hasattr(e, 'response') and e.response is not None:
                     status = e.response.status_code
                     if status == 429:
@@ -178,7 +175,6 @@ def call_model_with_fallback(messages, primary_model):
                 logger.warning(f"Model {full_model} request error: {e}, trying next")
                 continue
             except Exception as e:
-                # Проверяем текст ошибки на 413 (например, от Groq)
                 error_str = str(e)
                 if "413" in error_str or "Payload Too Large" in error_str:
                     logger.warning(f"Model {full_model} payload too large, trying next")
@@ -189,34 +185,58 @@ def call_model_with_fallback(messages, primary_model):
         if attempt == 0:
             logger.info("Все модели не ответили на первой попытке, начинаем второй проход...")
 
-    # Если ни одна модель не ответила после двух проходов
     error_msg = "❌ Нейросеть временно недоступна. Повторите попытку позже."
     logger.error(error_msg)
     return error_msg
 
 # ---------------------------
-#  Вспомогательные функции (без изменений)
+#  Вспомогательные функции
 # ---------------------------
 def extract_zip_and_read(zip_file: UploadFile):
+    """Пытается распаковать ZIP и вернуть словарь {path: content}."""
     temp_dir = tempfile.mkdtemp()
     zip_path = os.path.join(temp_dir, "uploaded.zip")
+    
     with open(zip_path, "wb") as f:
         shutil.copyfileobj(zip_file.file, f)
-
+    
+    logger.info(f"ZIP saved to {zip_path}, size: {os.path.getsize(zip_path)} bytes")
+    
     files_data = {}
-    with zipfile.ZipFile(zip_path, "r") as zip_ref:
-        zip_ref.extractall(temp_dir)
-
+    try:
+        with zipfile.ZipFile(zip_path, "r") as zip_ref:
+            bad_file = zip_ref.testzip()
+            if bad_file:
+                logger.warning(f"ZIP contains bad file: {bad_file}")
+            zip_ref.extractall(temp_dir)
+            logger.info(f"ZIP extracted successfully")
+    except zipfile.BadZipFile as e:
+        logger.error(f"Bad ZIP file: {e}")
+        # Возвращаем специальный маркер, что это не ZIP
+        return {"error": "not_a_zip"}
+    except Exception as e:
+        logger.error(f"ZIP extraction error: {e}")
+        return {"error": str(e)}
+    
     for root, dirs, files in os.walk(temp_dir):
         for filename in files:
             full_path = os.path.join(root, filename)
             relative_path = os.path.relpath(full_path, temp_dir)
+            if relative_path == "uploaded.zip":
+                continue
             try:
                 with open(full_path, "r", encoding="utf-8") as f:
                     content = f.read()
                     files_data[relative_path] = content
-            except Exception:
+                    logger.info(f"Read file: {relative_path}, size: {len(content)} chars")
+            except UnicodeDecodeError:
+                logger.warning(f"Skipping binary file: {relative_path}")
                 continue
+            except Exception as e:
+                logger.warning(f"Error reading {relative_path}: {e}")
+                continue
+    
+    logger.info(f"Total files read: {len(files_data)}")
     return files_data
 
 def parse_fixed_files(model_output: str):
@@ -278,7 +298,7 @@ def load_messages(user_id: str, limit: int = 10):
     items = sorted(data.data, key=lambda x: x["created_at"], reverse=True)[:limit]
     return [{"role": msg["role"], "content": msg["content"]} for msg in reversed(items)]
 
-# ========== GET /admin/ai-coder ==========
+# ========== GET ==========
 @router.get("/admin/ai-coder")
 def ai_coder_page(request: Request, user_id: str | None = None):
     if not user_id:
@@ -293,7 +313,7 @@ def ai_coder_page(request: Request, user_id: str | None = None):
         "selected_model": AVAILABLE_MODELS[0]
     })
 
-# ========== POST /admin/ai-coder (синхронный) ==========
+# ========== POST (синхронный) ==========
 @router.post("/admin/ai-coder")
 async def ai_coder(
     request: Request,
@@ -316,18 +336,27 @@ async def ai_coder(
     file_contents = ""
     zip_contents = {}
     file_name = ""
-    is_zip = False
 
     if file and file.filename:
         file_name = file.filename
-        if file.filename.lower().endswith('.zip') or file.content_type == 'application/zip':
-            is_zip = True
-            try:
-                zip_contents = extract_zip_and_read(file)
-            except zipfile.BadZipFile:
-                zip_contents = {"error": "Файл не является ZIP-архивом"}
-        else:
+        logger.info(f"Received file: {file_name}, content_type: {file.content_type}")
+        
+        # Пытаемся распаковать как ZIP
+        try:
+            result = extract_zip_and_read(file)
+            if isinstance(result, dict) and "error" in result:
+                logger.warning(f"ZIP extraction failed: {result['error']}, reading as text")
+                file.file.seek(0)
+                file_contents = file.file.read().decode("utf-8", errors="ignore")
+                zip_contents = {}
+            else:
+                zip_contents = result
+                logger.info(f"ZIP extracted, found {len(zip_contents)} files")
+        except Exception as e:
+            logger.warning(f"Error during ZIP extraction: {e}, reading as text")
+            file.file.seek(0)
             file_contents = file.file.read().decode("utf-8", errors="ignore")
+            zip_contents = {}
 
     history = load_messages(user_id)
     current_message = {
@@ -345,7 +374,7 @@ async def ai_coder(
     result = call_model_with_fallback(messages, selected_model)
     save_message(user_id, "user", current_message["content"])
     save_message(user_id, "assistant", result)
-    save_history(user_id, task, file_name if not is_zip else "", file_name if is_zip else "", result)
+    save_history(user_id, task, file_name, "", result)
 
     fixed_files = parse_fixed_files(result)
     fixed_zip_path = create_fixed_zip(fixed_files)
@@ -362,7 +391,7 @@ async def ai_coder(
         "custom_model": custom_model if model == "custom" else ""
     })
 
-# ========== API для AJAX (асинхронный) ==========
+# ========== API для AJAX ==========
 @router.post("/admin/ai-coder/api")
 async def ai_coder_api(
     task: str = Form(...),
@@ -385,18 +414,27 @@ async def ai_coder_api(
         file_contents = ""
         zip_contents = {}
         file_name = ""
-        is_zip = False
 
         if file and file.filename:
             file_name = file.filename
-            if file.filename.lower().endswith('.zip') or file.content_type == 'application/zip':
-                is_zip = True
-                try:
-                    zip_contents = extract_zip_and_read(file)
-                except zipfile.BadZipFile:
-                    zip_contents = {"error": "Файл не является ZIP-архивом"}
-            else:
+            logger.info(f"Received file: {file_name}, content_type: {file.content_type}")
+            
+            # Пытаемся распаковать как ZIP
+            try:
+                result = extract_zip_and_read(file)
+                if isinstance(result, dict) and "error" in result:
+                    logger.warning(f"ZIP extraction failed: {result['error']}, reading as text")
+                    file.file.seek(0)
+                    file_contents = file.file.read().decode("utf-8", errors="ignore")
+                    zip_contents = {}
+                else:
+                    zip_contents = result
+                    logger.info(f"ZIP extracted, found {len(zip_contents)} files")
+            except Exception as e:
+                logger.warning(f"Error during ZIP extraction: {e}, reading as text")
+                file.file.seek(0)
                 file_contents = file.file.read().decode("utf-8", errors="ignore")
+                zip_contents = {}
 
         history = load_messages(user_id)
         current_message = {
@@ -413,6 +451,7 @@ async def ai_coder_api(
 
         logger.info(f"ZIP contents keys: {list(zip_contents.keys())}")
         logger.info(f"Message content length: {len(current_message['content'])}")
+        logger.info(f"Single file contents length: {len(file_contents)}")
 
         messages = history + [current_message]
         result = call_model_with_fallback(messages, selected_model)
@@ -423,7 +462,7 @@ async def ai_coder_api(
 
         save_message(user_id, "user", current_message["content"])
         save_message(user_id, "assistant", result)
-        save_history(user_id, task, file_name if not is_zip else "", file_name if is_zip else "", result)
+        save_history(user_id, task, file_name, "", result)
 
         fixed_files = parse_fixed_files(result)
         fixed_zip_path = create_fixed_zip(fixed_files)
