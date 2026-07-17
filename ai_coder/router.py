@@ -219,22 +219,18 @@ async def process_request(request, task, file, model, custom_model, user_id):
     save_message(uid, "user", msg_content)
     save_message(uid, "assistant", result)
     
-    # --- КРИТИЧЕСКИЙ МОДУЛЬ: Создание задачи для фонового агента ---
-    if not result.startswith("❌"):
-        if not supabase:
-            logger.error("Supabase not available, cannot queue task")
-        else:
-            # Создаем задачу, которую подхватит git_agent.py
-            # Если был загружен только один файл, записываем его имя как путь, иначе помечаем как полный проект
-            target_path = fname if fname else "project_root" 
-            supabase.table("ai_coder_tasks").insert({
-                "user_id": uid,
-                "file_path": target_path,
-                "prompt": task,
-                "status": "pending"
-            }).execute()
-    
+    # Сохраняем в историю
     save_history(uid, task, fname, result)
+
+    # Если успешно и есть файлы — создаём задачу для git_agent
+    if not result.startswith("❌") and supabase:
+        target_path = fname if fname else "project_root"
+        supabase.table("ai_coder_tasks").insert({
+            "user_id": uid,
+            "file_path": target_path,
+            "prompt": task,
+            "status": "pending"
+        }).execute()
 
     fixed = parse_fixed_files(result)
     zip_path, zip_name = create_fixed_zip(fixed)
@@ -247,11 +243,13 @@ async def process_request(request, task, file, model, custom_model, user_id):
 def ai_coder_page(request: Request, user_id: str | None = None):
     ip = get_client_ip(request)
     uid = ensure_user(ip, user_id)
-    return templates.TemplateResponse("ai_coder.html", {
+    
+    # Загружаем историю сообщений
+    messages = load_messages(uid)
+    
+    return templates.TemplateResponse("ai_coder_chat.html", {
         "request": request,
-        "result": None,
-        "task": "",
-        "download": None,
+        "messages": messages,
         "user_id": uid,
         "available_models": AVAILABLE_MODELS,
         "selected_model": AVAILABLE_MODELS[0]
@@ -261,8 +259,13 @@ def ai_coder_page(request: Request, user_id: str | None = None):
 async def ai_coder(request: Request, task: str = Form(...), file: UploadFile = File(None),
                    model: str = Form(None), custom_model: str = Form(None), user_id: str = Form(None)):
     uid, sel, result, dl = await process_request(request, task, file, model, custom_model, user_id)
-    return templates.TemplateResponse("ai_coder.html", {
+    
+    # Загружаем обновлённые сообщения
+    messages = load_messages(uid)
+    
+    return templates.TemplateResponse("ai_coder_chat.html", {
         "request": request,
+        "messages": messages,
         "result": result,
         "task": task,
         "download": dl,
@@ -283,6 +286,39 @@ async def ai_coder_api(request: Request, task: str = Form(...), file: UploadFile
     except Exception as e:
         logger.exception("ai_coder_api error")
         return JSONResponse({"error": f"Внутренняя ошибка: {e}"}, status_code=500)
+
+# --- НОВЫЙ ЭНДПОИНТ ДЛЯ ЗАДАЧ ---
+
+@router.get("/admin/ai-coder/tasks")
+def tasks_page(request: Request):
+    """Страница для создания задач для git_agent"""
+    return templates.TemplateResponse("ai_coder_tasks.html", {
+        "request": request,
+        "available_models": AVAILABLE_MODELS
+    })
+
+@router.post("/admin/ai-coder/tasks")
+async def create_task(request: Request, file_path: str = Form(...), prompt: str = Form(...)):
+    """Создаёт задачу в ai_coder_tasks для git_agent"""
+    if not supabase:
+        return JSONResponse({"error": "Supabase не настроен"}, status_code=500)
+    
+    try:
+        supabase.table("ai_coder_tasks").insert({
+            "user_id": "00000000-0000-0000-0000-000000000001",
+            "file_path": file_path,
+            "prompt": prompt,
+            "status": "pending"
+        }).execute()
+        return templates.TemplateResponse("ai_coder_tasks.html", {
+            "request": request,
+            "result": f"✅ Задача создана: {file_path}"
+        })
+    except Exception as e:
+        return templates.TemplateResponse("ai_coder_tasks.html", {
+            "request": request,
+            "result": f"❌ Ошибка: {e}"
+        })
 
 @router.get("/admin/ai-coder/history/{user_id}")
 def ai_coder_history(request: Request, user_id: str):
