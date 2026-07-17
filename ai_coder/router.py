@@ -4,10 +4,10 @@ import shutil
 import uuid
 import logging
 import zipfile
+import requests
 from fastapi import APIRouter, Request, UploadFile, File, Form
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.templating import Jinja2Templates
-import requests
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -32,6 +32,7 @@ except Exception as e:
     logger.warning(f"Groq init error: {e}")
 
 router = APIRouter()
+# Шаблоны ищем от корня проекта (где лежит main.py)
 templates = Jinja2Templates(directory="templates")
 
 AVAILABLE_MODELS = [
@@ -48,7 +49,9 @@ AVAILABLE_MODELS = [
     "groq:gemma2-9b-it",
 ]
 
-def call_openrouter(model: str, messages: list, timeout: int = 15):
+# --- AI CALLS ---
+
+def call_openrouter(model: str, messages: list, timeout: int = 30):
     resp = requests.post(
         "https://openrouter.ai/api/v1/chat/completions",
         headers={
@@ -64,7 +67,7 @@ def call_openrouter(model: str, messages: list, timeout: int = 15):
     data = resp.json()
     return data["choices"][0]["message"]["content"] if data.get("choices") else None
 
-def call_groq(model: str, messages: list, timeout: int = 15):
+def call_groq(model: str, messages: list, timeout: int = 30):
     if not groq_client:
         raise Exception("Groq client not available")
     completion = groq_client.chat.completions.create(
@@ -82,88 +85,85 @@ def call_model_with_fallback(messages, primary_model):
     paid_fallback = "openrouter:google/gemma-4-26b-a4b-it"
     if paid_fallback not in base:
         base.append(paid_fallback)
-    seen, unique_models = set(), []
+
+    seen = set()
+    unique_models = []
     for m in base:
         if m not in seen:
             seen.add(m)
             unique_models.append(m)
-    for attempt in range(2):
-        for full in unique_models:
-            try:
-                provider, model_name = full.split(":", 1) if ":" in full else ("openrouter", full)
-                if provider == "openrouter":
-                    if not OPENROUTER_API_KEY:
-                        continue
-                    content = call_openrouter(model_name, messages)
-                elif provider == "groq":
-                    if not groq_client:
-                        continue
-                    content = call_groq(model_name, messages)
-                else:
-                    continue
-                if content:
-                    return content
-            except requests.exceptions.Timeout:
-                logger.warning(f"{full} timeout")
+
+    for full in unique_models:
+        try:
+            provider, model_name = full.split(":", 1) if ":" in full else ("openrouter", full)
+            if provider == "openrouter" and OPENROUTER_API_KEY:
+                content = call_openrouter(model_name, messages)
+            elif provider == "groq" and groq_client:
+                content = call_groq(model_name, messages)
+            else:
                 continue
-            except requests.exceptions.RequestException as e:
-                if getattr(e, 'response', None) and e.response.status_code in (429, 413):
-                    continue
-                logger.warning(f"{full} req error: {e}")
-                continue
-            except Exception as e:
-                logger.warning(f"{full} err: {e}")
-                continue
+            if content:
+                return content
+        except Exception as e:
+            logger.warning(f"Model {full} failed: {e}")
+            continue
     return "❌ Нейросеть временно недоступна. Повторите попытку позже."
+
+# --- UTILS ---
 
 def extract_zip_and_read(zip_file: UploadFile):
     temp_dir = tempfile.mkdtemp()
     zip_path = os.path.join(temp_dir, "uploaded.zip")
-    with open(zip_path, "wb") as f:
-        shutil.copyfileobj(zip_file.file, f)
-    files_data = {}
     try:
-        with zipfile.ZipFile(zip_path) as z:
+        with open(zip_path, "wb") as f:
+            shutil.copyfileobj(zip_file.file, f)
+        with zipfile.ZipFile(zip_path, "r") as z:
             z.extractall(temp_dir)
-    except zipfile.BadZipFile:
+        files_data = {}
+        for root, _, files in os.walk(temp_dir):
+            for fn in files:
+                if fn == "uploaded.zip":
+                    continue
+                p = os.path.join(root, fn)
+                rel = os.path.relpath(p, temp_dir)
+                try:
+                    with open(p, "r", encoding="utf-8") as f:
+                        files_data[rel] = f.read()
+                except (UnicodeDecodeError, IOError):
+                    continue
+        return files_data
+    except Exception as e:
+        logger.error(f"Zip extraction error: {e}")
         return {"error": "not_a_zip"}
-    for root, _, files in os.walk(temp_dir):
-        for fn in files:
-            if fn == "uploaded.zip":
-                continue
-            p = os.path.join(root, fn)
-            rel = os.path.relpath(p, temp_dir)
-            try:
-                with open(p, encoding="utf-8") as f:
-                    files_data[rel] = f.read()
-            except UnicodeDecodeError:
-                continue
-    return files_data
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
 def parse_fixed_files(out: str):
-    fixed, path, buf = {}, None, []
+    fixed, current_path, buffer = {}, None, []
     for line in out.splitlines():
         if line.startswith("--- ") and line.endswith(" ---"):
-            if path:
-                fixed[path] = "\n".join(buf)
-            path, buf = line[4:-4].strip(), []
-        elif path:
-            buf.append(line)
-    if path:
-        fixed[path] = "\n".join(buf)
+            if current_path:
+                fixed[current_path] = "\n".join(buffer)
+            current_path = line[4:-4].strip()
+            buffer = []
+        elif current_path is not None:
+            buffer.append(line)
+    if current_path:
+        fixed[current_path] = "\n".join(buffer)
     return fixed
 
 def create_fixed_zip(fixed_files: dict):
-    d = tempfile.mkdtemp()
-    zp = os.path.join(d, "fixed_project.zip")
-    with zipfile.ZipFile(zp, "w") as zf:
-        for path, content in fixed_files.items():
-            full = os.path.join(d, path)
-            os.makedirs(os.path.dirname(full), exist_ok=True)
-            with open(full, "w", encoding="utf-8") as f:
-                f.write(content)
-            zf.write(full, arcname=path)
-    return zp
+    temp_dir = tempfile.mkdtemp()
+    zip_name = f"fixed_{uuid.uuid4().hex[:8]}.zip"
+    zip_path = os.path.join(temp_dir, zip_name)
+    try:
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            for rel_path, content in fixed_files.items():
+                zf.writestr(rel_path, content)
+        return zip_path, zip_name
+    except Exception as e:
+        logger.error(f"Create zip error: {e}")
+        return None, None
 
 def save_history(user_id, task, file_names, model_output):
     if not supabase:
@@ -171,7 +171,7 @@ def save_history(user_id, task, file_names, model_output):
     supabase.table("ai_coder_history").insert({
         "user_id": user_id,
         "task": task,
-        "file_names": file_names,
+        "file_names": str(file_names),
         "model_output": model_output
     }).execute()
 
@@ -192,10 +192,7 @@ def load_messages(user_id, limit=10):
     return [{"role": i["role"], "content": i["content"]} for i in reversed(items)]
 
 def get_client_ip(request: Request) -> str:
-    fwd = request.headers.get("X-Forwarded-For")
-    if fwd:
-        return fwd.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    return request.headers.get("X-Forwarded-For", request.client.host if request.client else "unknown").split(",")[0].strip()
 
 def ensure_user(ip: str, user_id: str | None = None) -> str:
     if not supabase:
@@ -209,6 +206,14 @@ def ensure_user(ip: str, user_id: str | None = None) -> str:
     new_id = str(uuid.uuid4())
     supabase.table("ai_coder_users").insert({"user_id": new_id, "ip": ip}).execute()
     return new_id
+```
+
+---
+
+### Часть 2/2 — обработка запросов и маршруты (роуты)
+
+```python
+# --- CORE PROCESS ---
 
 async def process_request(request, task, file, model, custom_model, user_id):
     ip = get_client_ip(request)
@@ -238,8 +243,11 @@ async def process_request(request, task, file, model, custom_model, user_id):
     save_history(user_id, task, fname, result)
 
     fixed = parse_fixed_files(result)
-    zp = create_fixed_zip(fixed)
-    return user_id, selected, result, f"/admin/ai-coder/download?path={zp}"
+    zip_path, zip_name = create_fixed_zip(fixed)
+    download_url = f"/admin/ai-coder/download?path={zip_path}" if zip_path else None
+    return user_id, selected, result, download_url
+
+# --- ROUTES ---
 
 @router.get("/admin/ai-coder")
 def ai_coder_page(request: Request, user_id: str | None = None):
