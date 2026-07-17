@@ -1,160 +1,179 @@
 import os
 import time
-import base64
 import logging
-import requests
-from supabase import create_client
+from github import Github, GithubException
+from supabase import create_client, Client
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("git_agent")
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
+# Конфигурация
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-GH_TOKEN = os.getenv("GITHUB_TOKEN")
-REPO = os.getenv("GITHUB_REPO")
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+REPO_NAME = os.getenv("GITHUB_REPO", "user/repo")  # Например "ivan/project"
 BRANCH = os.getenv("GITHUB_BRANCH", "main")
 
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+# Инициализация клиентов
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if (SUPABASE_URL and SUPABASE_KEY) else None
+github_client = Github(GITHUB_TOKEN) if GITHUB_TOKEN else None
 
-try:
-    from groq import Groq
-    groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
-except Exception:
-    groq_client = None
-
-sb = create_client(SUPABASE_URL, SUPABASE_KEY) if (SUPABASE_URL and SUPABASE_KEY) else None
-
-AVAILABLE_MODELS = [
-    "openrouter:google/gemma-4-26b-a4b-it:free",
-    "openrouter:qwen/qwen3-coder:free",
-    "groq:llama-3.3-70b-versatile"
-]
-
-GH_HEADERS = {
-    "Authorization": f"Bearer {GH_TOKEN}",
-    "User-Agent": "kvgai-ai-coder-agent"
-}
-
-def _clean_ai_response(text: str) -> str:
-    """Очищает ответ ИИ от markdown-обёрток ```python ... ```"""
-    if not text:
-        return ""
-    text = text.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        if len(lines) >= 3:
-            if lines[0].startswith("```"):
-                lines = lines[1:]
-            if lines[-1].strip().startswith("```"):
-                lines = lines[:-1]
-            # убираем указание языка, если оно осталось в первой строке
-            if lines and lines[0].strip().lower() in ("python", "py", "javascript", "js", "html", "css"):
-                lines = lines[1:]
-            text = "\n".join(lines)
-    return text.strip()
-
-def call_openrouter(model, messages, timeout=30):
-    r = requests.post(
-        "https://openrouter.ai/api/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-            "Content-Type": "application/json"
-        },
-        json={"model": model, "messages": messages},
-        timeout=timeout
-    )
-    r.raise_for_status()
-    return r.json()["choices"][0]["message"]["content"]
-
-def call_groq(model, messages, timeout=30):
-    c = groq_client.chat.completions.create(
-        model=model,
-        messages=messages,
-        temperature=0.2,
-        max_tokens=4096,
-        timeout=timeout
-    )
-    return c.choices[0].message.content
-
-def fix_with_ai(file_text, prompt):
-    msgs = [{
-        "role": "user",
-        "content": (
-            f"{prompt}\n\n"
-            "--- FILE CONTENT ---\n"
-            f"{file_text}\n\n"
-            "Return ONLY the corrected code. No explanations. "
-            "No markdown code blocks. Only the raw code."
-        )
-    }]
-    for m in AVAILABLE_MODELS:
-        try:
-            prov, name = m.split(":", 1)
-            if prov == "openrouter" and OPENROUTER_API_KEY:
-                res = call_openrouter(name, msgs)
-                return _clean_ai_response(res)
-            if prov == "groq" and groq_client:
-                res = call_groq(name, msgs)
-                return _clean_ai_response(res)
-        except Exception as e:
-            logger.warning(f"Model {m} failed: {e}")
-    return None
-
-def get_task():
-    if not sb:
-        return None
-    r = sb.table("ai_coder_tasks").select("*").eq("status", "pending").limit(1).execute()
-    return r.data[0] if r.data else None
-
-def gh_get(path):
-    url = f"https://api.github.com/repos/{REPO}/contents/{path}?ref={BRANCH}"
-    return requests.get(url, headers=GH_HEADERS, timeout=15).json()
-
-def gh_put(path, content_b64, sha):
-    url = f"https://api.github.com/repos/{REPO}/contents/{path}"
-    data = {
-        "message": f"AI fix: {path}",
-        "content": content_b64,
-        "sha": sha,
-        "branch": BRANCH
-    }
-    return requests.put(url, headers=GH_HEADERS, json=data, timeout=15)
-
-def process():
-    t = get_task()
-    if not t:
-        return
-
-    # помечаем задачу как выполняющуюся
-    sb.table("ai_coder_tasks").update({"status": "running"}).eq("id", t["id"]).execute()
+def get_repo():
+    """Получает репозиторий GitHub"""
+    if not github_client:
+        raise Exception("GitHub token not configured")
     try:
-        f = gh_get(t["file_path"])
-        if "content" not in f:
-            raise Exception(f.get("message", "file not found in repo"))
-
-        old_text = base64.b64decode(f["content"]).decode("utf-8")
-        new_text = fix_with_ai(old_text, t["prompt"])
-        if not new_text:
-            raise Exception("AI returned empty or invalid result")
-
-        b64 = base64.b64encode(new_text.encode("utf-8")).decode("utf-8")
-        gh_put(t["file_path"], b64, f["sha"])
-
-        sb.table("ai_coder_tasks").update({"status": "done"}).eq("id", t["id"]).execute()
-        logger.info(f"Fixed {t['file_path']}")
-
+        return github_client.get_repo(REPO_NAME)
     except Exception as e:
-        logger.exception("task error")
-        sb.table("ai_coder_tasks").update({
-            "status": "error",
-            "prompt": str(e)
-        }).eq("id", t["id"]).execute()
+        logger.error(f"Cannot access repo {REPO_NAME}: {e}")
+        raise
 
-if __name__ == "__main__":
+def parse_content(content: str) -> dict:
+    """Парсит ответ нейросети в словарь {путь: содержимое}"""
+    files = {}
+    current_path = None
+    buffer = []
+    
+    for line in content.split('\n'):
+        if line.startswith('--- ') and line.endswith(' ---'):
+            # Сохраняем предыдущий файл
+            if current_path and buffer:
+                files[current_path] = '\n'.join(buffer)
+            current_path = line[4:-4].strip()
+            buffer = []
+        elif current_path is not None:
+            buffer.append(line)
+    
+    # Сохраняем последний файл
+    if current_path and buffer:
+        files[current_path] = '\n'.join(buffer)
+    
+    return files
+
+def process_task(task):
+    """Обрабатывает одну задачу"""
+    task_id = task["id"]
+    user_id = task["user_id"]
+    file_path = task.get("file_path", "project")
+    prompt = task.get("prompt", "")
+    
+    logger.info(f"Processing task {task_id} for user {user_id}")
+    logger.info(f"File path: {file_path}")
+    logger.info(f"Prompt: {prompt}")
+    
+    # Получаем ответ нейросети из истории
+    history = supabase.table("ai_coder_history").select("*").eq("user_id", user_id).order("created_at", desc=True).limit(1).execute()
+    if not history.data:
+        logger.error(f"No history found for user {user_id}")
+        return
+    
+    model_output = history.data[0]["model_output"]
+    logger.info(f"Model output length: {len(model_output)} chars")
+    
+    # Парсим файлы из ответа
+    files_to_update = parse_content(model_output)
+    logger.info(f"Parsed {len(files_to_update)} files from response")
+    
+    if not files_to_update:
+        logger.warning("No files found in response, using whole response as single file")
+        files_to_update = {file_path: model_output}
+    
+    repo = get_repo()
+    updated_files = []
+    
+    for rel_path, content in files_to_update.items():
+        try:
+            # Проверяем, существует ли файл в репозитории
+            try:
+                existing = repo.get_contents(rel_path, ref=BRANCH)
+                # Файл существует - обновляем
+                repo.update_file(
+                    path=rel_path,
+                    message=f"AI Coder: Update {rel_path}",
+                    content=content,
+                    sha=existing.sha,
+                    branch=BRANCH
+                )
+                logger.info(f"✅ Updated: {rel_path}")
+                updated_files.append(f"Updated: {rel_path}")
+            except GithubException as e:
+                if e.status == 404:
+                    # Файл не существует - создаём
+                    # Определяем путь до директории
+                    dir_path = os.path.dirname(rel_path)
+                    if dir_path:
+                        # Создаём директории если нужно (через пустой файл .gitkeep)
+                        try:
+                            repo.create_file(
+                                path=f"{dir_path}/.gitkeep",
+                                message=f"AI Coder: Create directory {dir_path}",
+                                content="",
+                                branch=BRANCH
+                            )
+                        except:
+                            pass  # Директория уже существует
+                    
+                    repo.create_file(
+                        path=rel_path,
+                        message=f"AI Coder: Create {rel_path}",
+                        content=content,
+                        branch=BRANCH
+                    )
+                    logger.info(f"✅ Created: {rel_path}")
+                    updated_files.append(f"Created: {rel_path}")
+                else:
+                    raise
+                    
+        except Exception as e:
+            logger.error(f"❌ Failed to process {rel_path}: {e}")
+            updated_files.append(f"Failed: {rel_path} - {str(e)}")
+    
+    # Обновляем статус задачи
+    result_text = "\n".join(updated_files) if updated_files else "No files were modified"
+    supabase.table("ai_coder_tasks").update({
+        "status": "done",
+        "result": result_text
+    }).eq("id", task_id).execute()
+    
+    logger.info(f"Task {task_id} completed: {result_text}")
+
+def main():
+    """Главный цикл агента"""
+    logger.info(f"Starting Git Agent for repo: {REPO_NAME}, branch: {BRANCH}")
+    logger.info(f"Supabase URL: {SUPABASE_URL}")
+    logger.info(f"GitHub configured: {bool(GITHUB_TOKEN)}")
+    
     while True:
         try:
-            process()
-        except Exception:
-            logger.exception("loop error")
-        time.sleep(25)
+            # Проверяем подключение к GitHub
+            if github_client:
+                try:
+                    user = github_client.get_user()
+                    logger.debug(f"GitHub authenticated as: {user.login}")
+                except Exception as e:
+                    logger.error(f"GitHub auth failed: {e}")
+            
+            # Ищем новые задачи
+            response = supabase.table("ai_coder_tasks").select("*").eq("status", "pending").limit(1).execute()
+            tasks = response.data if response.data else []
+            
+            if tasks:
+                task = tasks[0]
+                logger.info(f"Found task: id={task['id']}")
+                
+                # Меняем статус на processing
+                supabase.table("ai_coder_tasks").update({"status": "processing"}).eq("id", task["id"]).execute()
+                
+                # Обрабатываем
+                process_task(task)
+            else:
+                logger.debug("No pending tasks, sleeping...")
+                
+        except Exception as e:
+            logger.error(f"Main loop error: {e}")
+            time.sleep(5)
+        
+        time.sleep(10)  # Проверяем каждые 10 секунд
+
+if __name__ == "__main__":
+    main()
