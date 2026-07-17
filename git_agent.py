@@ -11,7 +11,7 @@ logger = logging.getLogger("git_agent")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 GH_TOKEN = os.getenv("GITHUB_TOKEN")
-REPO = os.getenv("GITHUB_REPO", "mrvan1000000-boop/kvgai-ai-coder")
+REPO = os.getenv("GITHUB_REPO")
 BRANCH = os.getenv("GITHUB_BRANCH", "main")
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
@@ -36,13 +36,30 @@ GH_HEADERS = {
     "User-Agent": "kvgai-ai-coder-agent"
 }
 
-def call_openrouter(model, messages, timeout=20):
+def _clean_ai_response(text: str) -> str:
+    """Очищает ответ ИИ от markdown-обёрток ```python ... ```"""
+    if not text:
+        return ""
+    text = text.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if len(lines) >= 3:
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines[-1].strip().startswith("```"):
+                lines = lines[:-1]
+            # убираем указание языка, если оно осталось в первой строке
+            if lines and lines[0].strip().lower() in ("python", "py", "javascript", "js", "html", "css"):
+                lines = lines[1:]
+            text = "\n".join(lines)
+    return text.strip()
+
+def call_openrouter(model, messages, timeout=30):
     r = requests.post(
         "https://openrouter.ai/api/v1/chat/completions",
         headers={
             "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-            "Content-Type": "application/json",
-            "User-Agent": "kvgai-agent"
+            "Content-Type": "application/json"
         },
         json={"model": model, "messages": messages},
         timeout=timeout
@@ -50,37 +67,38 @@ def call_openrouter(model, messages, timeout=20):
     r.raise_for_status()
     return r.json()["choices"][0]["message"]["content"]
 
-def call_groq(model, messages, timeout=20):
+def call_groq(model, messages, timeout=30):
     c = groq_client.chat.completions.create(
-        model=model, messages=messages, temperature=0.3, max_tokens=4096, timeout=timeout
+        model=model,
+        messages=messages,
+        temperature=0.2,
+        max_tokens=4096,
+        timeout=timeout
     )
     return c.choices[0].message.content
-
-def _clean_code(text: str) -> str:
-    if not text:
-        return ""
-    text = text.strip()
-    if text.startswith("```"):
-        text = text.split("```", 2)[1]
-        if text.startswith("python"):
-            text = text[len("python"):]
-        text = text.strip()
-    return text
 
 def fix_with_ai(file_text, prompt):
     msgs = [{
         "role": "user",
-        "content": f"{prompt}\n\n--- FILE ---\n{file_text}\n\nВерни только исправленный код без пояснений."
+        "content": (
+            f"{prompt}\n\n"
+            "--- FILE CONTENT ---\n"
+            f"{file_text}\n\n"
+            "Return ONLY the corrected code. No explanations. "
+            "No markdown code blocks. Only the raw code."
+        )
     }]
     for m in AVAILABLE_MODELS:
         try:
             prov, name = m.split(":", 1)
             if prov == "openrouter" and OPENROUTER_API_KEY:
-                return _clean_code(call_openrouter(name, msgs))
+                res = call_openrouter(name, msgs)
+                return _clean_ai_response(res)
             if prov == "groq" and groq_client:
-                return _clean_code(call_groq(name, msgs))
+                res = call_groq(name, msgs)
+                return _clean_ai_response(res)
         except Exception as e:
-            logger.warning(f"{m} fail: {e}")
+            logger.warning(f"Model {m} failed: {e}")
     return None
 
 def get_task():
@@ -96,7 +114,7 @@ def gh_get(path):
 def gh_put(path, content_b64, sha):
     url = f"https://api.github.com/repos/{REPO}/contents/{path}"
     data = {
-        "message": f"AI auto-fix: {path}",
+        "message": f"AI fix: {path}",
         "content": content_b64,
         "sha": sha,
         "branch": BRANCH
@@ -107,22 +125,31 @@ def process():
     t = get_task()
     if not t:
         return
+
+    # помечаем задачу как выполняющуюся
     sb.table("ai_coder_tasks").update({"status": "running"}).eq("id", t["id"]).execute()
     try:
         f = gh_get(t["file_path"])
         if "content" not in f:
-            raise Exception(f.get("message", "file not found"))
+            raise Exception(f.get("message", "file not found in repo"))
+
         old_text = base64.b64decode(f["content"]).decode("utf-8")
         new_text = fix_with_ai(old_text, t["prompt"])
         if not new_text:
-            raise Exception("AI return empty")
-        b64 = base64.b64encode(new_text.encode("utf-8")).decode()
+            raise Exception("AI returned empty or invalid result")
+
+        b64 = base64.b64encode(new_text.encode("utf-8")).decode("utf-8")
         gh_put(t["file_path"], b64, f["sha"])
+
         sb.table("ai_coder_tasks").update({"status": "done"}).eq("id", t["id"]).execute()
         logger.info(f"Fixed {t['file_path']}")
+
     except Exception as e:
         logger.exception("task error")
-        sb.table("ai_coder_tasks").update({"status": "error", "prompt": str(e)}).eq("id", t["id"]).execute()
+        sb.table("ai_coder_tasks").update({
+            "status": "error",
+            "prompt": str(e)
+        }).eq("id", t["id"]).execute()
 
 if __name__ == "__main__":
     while True:
