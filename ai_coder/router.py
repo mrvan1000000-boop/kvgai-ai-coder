@@ -246,9 +246,25 @@ async def process_request(request, task, file, model, custom_model, user_id):
 def ai_coder_page(request: Request, user_id: str | None = None):
     ip = get_client_ip(request)
     uid = ensure_user(ip, user_id)
+    history = load_messages(uid)  # загружаем прошлые сообщения
+    # Преобразуем в формат для шаблона: user/assistant
+    chat_history = []
+    for m in history:
+        role = "user" if m["role"] == "user" else "assistant"
+        # Убираем служебный префикс "User ID: ... Task: ..." для чистоты (опционально)
+        content = m["content"]
+        if role == "user" and "Task:" in content:
+            content = content.split("Task:", 1)[1].split("\n\nSingle file")[0].strip()
+        chat_history.append({"role": role, "content": content})
     return templates.TemplateResponse("ai_coder.html", {
-        "request": request, "result": None, "task": "", "download": None,
-        "user_id": uid, "available_models": AVAILABLE_MODELS, "selected_model": AVAILABLE_MODELS[0]
+        "request": request,
+        "result": None,
+        "task": "",
+        "download": None,
+        "user_id": uid,
+        "available_models": AVAILABLE_MODELS,
+        "selected_model": AVAILABLE_MODELS[0],
+        "chat_history": chat_history  # передаём в шаблон
     })
 
 # ========== POST ==========
