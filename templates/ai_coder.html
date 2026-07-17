@@ -6,7 +6,7 @@
         <p>Оптимизация кода, поиск ошибок, рефакторинг проектов.</p>
     </div>
     <div class="chat-window" id="chatWindow">
-        {# Рендерим историю из Python (последние 10 сообщений) #}
+        {# Подгружаем прошлые сообщения #}
         {% if chat_history %}
             {% for msg in chat_history %}
                 <div class="message message-{{ msg.role }}">
@@ -35,13 +35,8 @@
                 </div>
             </div>
         {% endif %}
-        
-        {# Индикатор загрузки старых сообщений #}
-        <div id="loadingIndicator" style="display: none; text-align: center; padding: 15px; width: 100%; color: #888;">
-            <i class="fas fa-spinner fa-spin"></i> Загрузка истории...
-        </div>
     </div>
-
+    {# остальная часть формы и скриптов без изменений #}
     <form class="chat-form" id="chatForm" enctype="multipart/form-data">
         <input type="hidden" name="user_id" id="user_id_input" value="{{ user_id or '' }}">
         <div class="input-area">
@@ -75,155 +70,58 @@
         </div>
     </form>
 </div>
-
 <script>
-// --- Переменные и инициализация ---
 const fileInput = document.getElementById('fileInput');
 const filePreview = document.getElementById('filePreview');
 const fileNames = document.getElementById('fileNames');
-const taskInput = document.getElementById('taskInput');
-const chatWindow = document.getElementById('chatWindow');
-const chatForm = document.getElementById('chatForm');
-const submitBtn = document.getElementById('submitBtn');
-const loadingIndicator = document.getElementById('loadingIndicator');
-const userId = "{{ user_id or '' }}";
-
-// Состояние для бесконечной прокрутки
-let offset = 10;
-let isLoadingHistory = false;
-let noMoreHistory = false;
-
-// --- Функции ---
-
+fileInput.onchange = () => {
+    if (fileInput.files.length) { fileNames.textContent = fileInput.files[0].name; filePreview.style.display = 'flex'; }
+    else filePreview.style.display = 'none';
+};
 function clearFiles() { fileInput.value = ''; filePreview.style.display = 'none'; }
 
-fileInput.onchange = () => {
-    if (fileInput.files.length) { 
-        fileNames.textContent = fileInput.files[0].name; 
-        filePreview.style.display = 'flex'; 
-    } else {
-        filePreview.style.display = 'none';
-    }
-};
-
-taskInput.oninput = () => { 
-    taskInput.style.height = 'auto'; 
-    taskInput.style.height = taskInput.scrollHeight + 'px'; 
-};
+const taskInput = document.getElementById('taskInput');
+taskInput.oninput = () => { taskInput.style.height = 'auto'; taskInput.style.height = taskInput.scrollHeight + 'px'; };
 
 window.copyCode = btn => {
     const pre = btn.closest('.message-body').querySelector('pre');
     navigator.clipboard.writeText(pre.textContent).then(() => {
-        const icon = btn.innerHTML;
         btn.innerHTML = '<i class="fas fa-check"></i> Скопировано';
-        setTimeout(() => btn.innerHTML = icon, 2000);
+        setTimeout(() => btn.innerHTML = '<i class="fas fa-copy"></i> Копировать', 2000);
     });
 };
 
 document.getElementById('modelSelect').onchange = e => {
-    document.getElementById('customModelInput').style.display = e.target.value === 'custom'? 'inline-block' : 'none';
+    document.getElementById('customModelInput').style.display = e.target.value === 'custom' ? 'inline-block' : 'none';
 };
+
+const chatForm = document.getElementById('chatForm');
+const chatWindow = document.getElementById('chatWindow');
+const submitBtn = document.getElementById('submitBtn');
+const formActions = document.getElementById('formActions');
 
 function addMsg(role, content) {
     const d = document.createElement('div');
     d.className = `message message-${role}`;
-    d.innerHTML = `
-        <div class="message-avatar"><i class="fas fa-${role === 'user'? 'user' : 'robot'}"></i></div>
-        <div class="message-content">
-            <div class="message-label">${role === 'user'? 'Задача' : 'Ответ AI'}</div>
-            <div class="message-body">${role === 'assistant'? '<pre><code class="language-plaintext"></code></pre>' : ''}</div>
-        </div>`;
-    
-    if (role === 'assistant') {
-        d.querySelector('code').textContent = content;
-    } else {
-        d.querySelector('..message-body').textContent = content;
-    }
+    d.innerHTML = `<div class="message-avatar"><i class="fas fa-${role === 'user' ? 'user' : 'robot'}"></i></div>
+        <div class="message-content"><div class="message-label">${role === 'user' ? 'Задача' : 'Ответ AI'}</div>
+        <div class="message-body">${role === 'assistant' ? '<pre><code class="language-plaintext"></code></pre>' : ''}</div></div>`;
+    if (role === 'assistant') d.querySelector('code').textContent = content;
+    else d.querySelector('.message-body').textContent = content;
     chatWindow.appendChild(d);
     chatWindow.scrollTop = chatWindow.scrollHeight;
 }
 
-// --- Автопрокрутка вниз при загрузке страницы ---
-window.addEventListener('DOMContentLoaded', () => {
-    chatWindow.scrollTop = chatWindow.scrollHeight;
-    document.querySelectorAll('pre code').forEach(b => {
-        if (window.hljs) hljs.highlightElement(b);
-    });
-});
-
-// --- Бесконечная прокрутка вверх (подгрузка старых) ---
-chatWindow.addEventListener('scroll', async () => {
-    if (chatWindow.scrollTop <= 50 && !isLoadingHistory && !noMoreHistory && userId) {
-        isLoadingHistory = true;
-        loadingIndicator.style.display = 'block';
-
-        // Сохраняем позицию прокрутки, чтобы окно не "прыгало"
-        const oldScrollHeight = chatWindow.scrollHeight;
-
-        try {
-            const r = await fetch(`/admin/ai-coder/api/history/${userId}?offset=${offset}`);
-            if (!r.ok) throw new Error("Ошибка сети");
-            const messages = await r.json();
-
-            if (Array.isArray(messages) && messages.length > 0) {
-                // Вставляем старые сообщения в начало (перед индикатором загрузки)
-                const frag = document.createDocumentFragment();
-                messages.forEach(m => {
-                    const role = m.role === 'user' ? 'user' : 'assistant';
-                    let content = m.content;
-                    if (role === 'user' && content.includes('Task:')) {
-                        content = content.split('Task:', 1)[1].split('\n\nSingle file')[0].trim();
-                    }
-                    const d = document.createElement('div');
-                    d.className = `message message-${role}`;
-                    d.innerHTML = `
-                        <div class="message-avatar"><i class="fas fa-${role === 'user' ? 'user' : 'robot'}"></i></div>
-                        <div class="message-content">
-                            <div class="message-label">${role === 'user' ? 'Задача' : 'Ответ AI'}</div>
-                            <div class="message-body">${role === 'assistant' ? '<pre><code class="language-plaintext"></code></pre>' : ''}</div>
-                        </div>`;
-                    if (role === 'assistant') {
-                        d.querySelector('code').textContent = content;
-                        if (window.hljs) hljs.highlightElement(d.querySelector('code'));
-                    } else {
-                        d.querySelector('.message-body').textContent = content;
-                    }
-                    frag.appendChild(d);
-                });
-                chatWindow.insertBefore(frag, loadingIndicator);
-                offset += 10;
-
-                // Корректируем прокрутку, чтобы визуально остаться на том же месте
-                chatWindow.scrollTop = chatWindow.scrollHeight - oldScrollHeight + chatWindow.scrollTop;
-            } else {
-                noMoreHistory = true;
-                loadingIndicator.innerHTML = "<span>История загружена полностью</span>";
-                setTimeout(() => loadingIndicator.style.display = 'none', 1500);
-            }
-        } catch (err) {
-            console.error(err);
-            loadingIndicator.innerHTML = "<span style='color:red'>Ошибка загрузки</span>";
-        } finally {
-            isLoadingHistory = false;
-            if (!noMoreHistory) loadingIndicator.style.display = 'none';
-        }
-    }
-});
-
-// --- Отправка формы (без перезагрузки) ---
 chatForm.onsubmit = async e => {
     e.preventDefault();
     const task = taskInput.value.trim();
     if (!task && !fileInput.files.length) return;
-
     const fd = new FormData();
     fd.append('task', task);
     fd.append('user_id', document.getElementById('user_id_input').value);
     if (fileInput.files.length) fd.append('file', fileInput.files[0]);
     fd.append('model', document.getElementById('modelSelect').value);
-    if (document.getElementById('modelSelect').value === 'custom') {
-        fd.append('custom_model', document.getElementById('customModelInput').value);
-    }
+    if (document.getElementById('modelSelect').value === 'custom') fd.append('custom_model', document.getElementById('customModelInput').value);
 
     addMsg('user', task || '📎 Файл');
     taskInput.value = ''; clearFiles();
@@ -236,33 +134,21 @@ chatForm.onsubmit = async e => {
             addMsg('assistant', data.result);
             if (data.download_url) {
                 let a = formActions.querySelector('.download-link');
-                if (!a) {
-                    a = document.createElement('a');
-                    a.className = 'btn btn-success download-link';
-                    formActions.appendChild(a);
-                }
-                a.href = data.download_url;
-                a.innerHTML = '<i class="fas fa-download"></i> Скачать ZIP';
+                if (!a) { a = document.createElement('a'); a.className = 'btn btn-success download-link'; formActions.appendChild(a); }
+                a.href = data.download_url; a.innerHTML = '<i class="fas fa-download"></i> Скачать ZIP';
             }
-        } else {
-            addMsg('system', '❌ ' + (data.error || 'Ошибка'));
-        }
-    } catch (err) {
-        addMsg('system', '❌ ' + err.message);
-    } finally {
-        submitBtn.disabled = false;
-        submitBtn.innerHTML = '<i class="fas fa-arrow-up"></i>';
-        chatWindow.scrollTop = chatWindow.scrollHeight;
-    }
+        } else addMsg('system', '❌ ' + (data.error || 'Ошибка'));
+    } catch (err) { addMsg('system', '❌ ' + err.message); }
+    finally { submitBtn.disabled = false; submitBtn.innerHTML = '<i class="fas fa-arrow-up"></i>'; }
 };
 
-// Сохраняем user_id в localStorage для стабильности
 (function() {
-    if (userId) localStorage.setItem("kvg_ai_user_id", userId);
+    const uid = "{{ user_id or '' }}";
+    if (uid) localStorage.setItem("kvg_ai_user_id", uid);
     const inp = document.getElementById('user_id_input');
-    if (!inp.value && localStorage.getItem('kvg_ai_user_id')) {
-        inp.value = localStorage.getItem('kvg_ai_user_id');
-    }
+    if (!inp.value && localStorage.getItem('kvg_ai_user_id')) inp.value = localStorage.getItem('kvg_ai_user_id');
+    // Подсветка кода для подгруженных сообщений
+    document.querySelectorAll('pre code').forEach(b => hljs.highlightElement(b));
 })();
 </script>
 {% endblock %}
