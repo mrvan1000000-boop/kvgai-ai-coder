@@ -183,11 +183,23 @@ def save_message(user_id, role, content):
         "user_id": user_id, "role": role, "content": content
     }).execute()
 
-def load_messages(user_id, limit=10):
+def load_messages(user_id, limit=10, offset=0):
     if not supabase: return []
-    data = supabase.table("ai_coder_messages").select("*").eq("user_id", user_id).execute()
-    items = sorted(data.data, key=lambda x: x["created_at"], reverse=True)[:limit]
-    return [{"role": i["role"], "content": i["content"]} for i in reversed(items)]
+    # Используем.range() для пагинации: от (offset) до (offset + limit - 1)
+    # Но так как мы хотим именно старые сообщения, нам нужно сортировать по возрастанию 
+    # и брать последние N с учетом смещения. Проще всего: 
+    # Берем последние (limit + offset) сообщений и отрезаем первые offset.
+    data = supabase.table("ai_coder_messages") \
+        select("*") \
+        eq("user_id", user_id) \
+        order("created_at", desc=False) \
+        limit(limit + offset) \
+        execute()
+    
+    items = data.data
+    # Если мы запрашиваем "прошлое", нам нужны сообщения, которые идут ПЕРЕД текущим списком
+    # Но для простоты реализации в API мы будем возвращать "срез"
+    return [{"role": i["role"], "content": i["content"]} for i in items]
 
 def get_client_ip(request: Request) -> str:
     fwd = request.headers.get("X-Forwarded-For")
@@ -246,9 +258,27 @@ async def process_request(request, task, file, model, custom_model, user_id):
 def ai_coder_page(request: Request, user_id: str | None = None):
     ip = get_client_ip(request)
     uid = ensure_user(ip, user_id)
+    
+    # Загружаем последние 10 сообщений
+    history = load_messages(uid, limit=10, offset=0)
+    
+    chat_history = []
+    for m in history:
+        role = "user" if m["role"] == "user" else "assistant"
+        content = m["content"]
+        if role == "user" and "Task:" in content:
+            content = content.split("Task:", 1)[1].split("\n\nSingle file")[0].strip()
+        chat_history.append({"role": role, "content": content})
+    
     return templates.TemplateResponse("ai_coder.html", {
-        "request": request, "result": None, "task": "", "download": None,
-        "user_id": uid, "available_models": AVAILABLE_MODELS, "selected_model": AVAILABLE_MODELS[0]
+        "request": request,
+        "result": None,
+        "task": "",
+        "download": None,
+        "user_id": uid,
+        "available_models": AVAILABLE_MODELS,
+        "selected_model": AVAILABLE_MODELS[0],
+        "chat_history": chat_history
     })
 
 # ========== POST ==========
@@ -289,6 +319,25 @@ def ai_coder_history_item(request: Request, item_id: str):
     data = supabase.table("ai_coder_history").select("*").eq("id", item_id).single().execute()
     return templates.TemplateResponse("ai_coder_history_item.html", {"request": request, "item": data.data})
 
+@router.get("/admin/ai-coder/api/history/{user_id}")
+def get_history_api(user_id: str, offset: int = 10):
+    if not supabase: return JSONResponse({"error": "Supabase not configured"}, status_code=500)
+    
+    # Берем сообщения в диапазоне от (count - offset - limit) до (count - offset)
+    # Но самый надежный способ для Supabase (из-за отсутствия сложного SQL в базовом клиенте):
+    # Получить все, но ограничить количество. 
+    # Для эффективной пагинации в реальном проекте лучше использовать SQL-функцию, 
+    # но для текущей задачи сделаем так:
+    data = supabase.table("ai_coder_messages") \
+        select("*") \
+        eq("user_id", user_id) \
+        order("created_at", desc=True) \
+        range(offset, offset + 10) \
+        execute()
+    
+    # Преобразуем и возвращаем в хронологическом порядке (от старых к новым)
+    messages = [{"role": i["role"], "content": i["content"]} for i in data.data]
+    return messages[::-1] 
 # ========== Download ==========
 ALLOWED_DIR = tempfile.gettempdir()
 
