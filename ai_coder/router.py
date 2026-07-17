@@ -9,13 +9,9 @@ from fastapi.responses import JSONResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 import requests
 
-# Настройка логирования
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ---------------------------
-#  SUPABASE
-# ---------------------------
 try:
     from supabase import create_client, Client
     SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -52,9 +48,6 @@ AVAILABLE_MODELS = [
     "groq:gemma2-9b-it",
 ]
 
-# ---------------------------
-#  Провайдеры AI
-# ---------------------------
 def call_openrouter(model: str, messages: list, timeout: int = 15):
     resp = requests.post(
         "https://openrouter.ai/api/v1/chat/completions",
@@ -94,33 +87,35 @@ def call_model_with_fallback(messages, primary_model):
         if m not in seen:
             seen.add(m)
             unique_models.append(m)
-
     for attempt in range(2):
         for full in unique_models:
             try:
                 provider, model_name = full.split(":", 1) if ":" in full else ("openrouter", full)
                 if provider == "openrouter":
-                    if not OPENROUTER_API_KEY: continue
+                    if not OPENROUTER_API_KEY:
+                        continue
                     content = call_openrouter(model_name, messages)
                 elif provider == "groq":
-                    if not groq_client: continue
+                    if not groq_client:
+                        continue
                     content = call_groq(model_name, messages)
                 else:
                     continue
-                if content: return content
+                if content:
+                    return content
             except requests.exceptions.Timeout:
-                logger.warning(f"{full} timeout"); continue
+                logger.warning(f"{full} timeout")
+                continue
             except requests.exceptions.RequestException as e:
                 if getattr(e, 'response', None) and e.response.status_code in (429, 413):
                     continue
-                logger.warning(f"{full} req error: {e}"); continue
+                logger.warning(f"{full} req error: {e}")
+                continue
             except Exception as e:
-                logger.warning(f"{full} err: {e}"); continue
+                logger.warning(f"{full} err: {e}")
+                continue
     return "❌ Нейросеть временно недоступна. Повторите попытку позже."
 
-# ---------------------------
-#  Вспомогательные функции
-# ---------------------------
 def extract_zip_and_read(zip_file: UploadFile):
     temp_dir = tempfile.mkdtemp()
     zip_path = os.path.join(temp_dir, "uploaded.zip")
@@ -134,7 +129,8 @@ def extract_zip_and_read(zip_file: UploadFile):
         return {"error": "not_a_zip"}
     for root, _, files in os.walk(temp_dir):
         for fn in files:
-            if fn == "uploaded.zip": continue
+            if fn == "uploaded.zip":
+                continue
             p = os.path.join(root, fn)
             rel = os.path.relpath(p, temp_dir)
             try:
@@ -148,11 +144,13 @@ def parse_fixed_files(out: str):
     fixed, path, buf = {}, None, []
     for line in out.splitlines():
         if line.startswith("--- ") and line.endswith(" ---"):
-            if path: fixed[path] = "\n".join(buf)
+            if path:
+                fixed[path] = "\n".join(buf)
             path, buf = line[4:-4].strip(), []
         elif path:
             buf.append(line)
-    if path: fixed[path] = "\n".join(buf)
+    if path:
+        fixed[path] = "\n".join(buf)
     return fixed
 
 def create_fixed_zip(fixed_files: dict):
@@ -167,36 +165,36 @@ def create_fixed_zip(fixed_files: dict):
             zf.write(full, arcname=path)
     return zp
 
-# ---------------------------
-#  БД
-# ---------------------------
 def save_history(user_id, task, file_names, model_output):
-    if not supabase: return
+    if not supabase:
+        return
     supabase.table("ai_coder_history").insert({
-        "user_id": user_id, "task": task,
-        "file_names": file_names, "model_output": model_output
+        "user_id": user_id,
+        "task": task,
+        "file_names": file_names,
+        "model_output": model_output
     }).execute()
 
 def save_message(user_id, role, content):
-    if not supabase: return
+    if not supabase:
+        return
     supabase.table("ai_coder_messages").insert({
-        "user_id": user_id, "role": role, "content": content
+        "user_id": user_id,
+        "role": role,
+        "content": content
     }).execute()
 
-def load_messages(user_id, limit=10, offset=0):
-    if not supabase: return []
-    # Используем range для пагинации
-    data = supabase.table("ai_coder_messages") \
-        .select("*") \
-        .eq("user_id", user_id) \
-        .order("created_at", desc=False) \
-        .range(offset, offset + limit) \
-        .execute()
-    return [{"role": i["role"], "content": i["content"]} for i in data.data]
+def load_messages(user_id, limit=10):
+    if not supabase:
+        return []
+    data = supabase.table("ai_coder_messages").select("*").eq("user_id", user_id).execute()
+    items = sorted(data.data, key=lambda x: x["created_at"], reverse=True)[:limit]
+    return [{"role": i["role"], "content": i["content"]} for i in reversed(items)]
 
 def get_client_ip(request: Request) -> str:
     fwd = request.headers.get("X-Forwarded-For")
-    if fwd: return fwd.split(",")[0].strip()
+    if fwd:
+        return fwd.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
 
 def ensure_user(ip: str, user_id: str | None = None) -> str:
@@ -212,9 +210,6 @@ def ensure_user(ip: str, user_id: str | None = None) -> str:
     supabase.table("ai_coder_users").insert({"user_id": new_id, "ip": ip}).execute()
     return new_id
 
-# ---------------------------
-#  Общая логика
-# ---------------------------
 async def process_request(request, task, file, model, custom_model, user_id):
     ip = get_client_ip(request)
     user_id = ensure_user(ip, user_id)
@@ -246,19 +241,10 @@ async def process_request(request, task, file, model, custom_model, user_id):
     zp = create_fixed_zip(fixed)
     return user_id, selected, result, f"/admin/ai-coder/download?path={zp}"
 
-# ========== GET ==========
 @router.get("/admin/ai-coder")
 def ai_coder_page(request: Request, user_id: str | None = None):
     ip = get_client_ip(request)
     uid = ensure_user(ip, user_id)
-    history = load_messages(uid, limit=10, offset=0)
-    chat_history = []
-    for m in history:
-        role = "user" if m["role"] == "user" else "assistant"
-        content = m["content"]
-        if role == "user" and "Task:" in content:
-            content = content.split("Task:", 1)[1].split("\n\nSingle file")[0].strip()
-        chat_history.append({"role": role, "content": content})
     return templates.TemplateResponse("ai_coder.html", {
         "request": request,
         "result": None,
@@ -266,22 +252,24 @@ def ai_coder_page(request: Request, user_id: str | None = None):
         "download": None,
         "user_id": uid,
         "available_models": AVAILABLE_MODELS,
-        "selected_model": AVAILABLE_MODELS[0],
-        "chat_history": chat_history
+        "selected_model": AVAILABLE_MODELS[0]
     })
 
-# ========== POST ==========
 @router.post("/admin/ai-coder")
 async def ai_coder(request: Request, task: str = Form(...), file: UploadFile = File(None),
                    model: str = Form(None), custom_model: str = Form(None), user_id: str = Form(None)):
     uid, sel, result, dl = await process_request(request, task, file, model, custom_model, user_id)
     return templates.TemplateResponse("ai_coder.html", {
-        "request": request, "result": result, "task": task, "download": dl,
-        "user_id": uid, "available_models": AVAILABLE_MODELS, "selected_model": sel,
+        "request": request,
+        "result": result,
+        "task": task,
+        "download": dl,
+        "user_id": uid,
+        "available_models": AVAILABLE_MODELS,
+        "selected_model": sel,
         "custom_model": custom_model if model == "custom" else ""
     })
 
-# ========== API ==========
 @router.post("/admin/ai-coder/api")
 async def ai_coder_api(request: Request, task: str = Form(...), file: UploadFile = File(None),
                        model: str = Form(None), custom_model: str = Form(None), user_id: str = Form(None)):
@@ -294,38 +282,26 @@ async def ai_coder_api(request: Request, task: str = Form(...), file: UploadFile
         logger.exception("ai_coder_api error")
         return JSONResponse({"error": f"Внутренняя ошибка: {e}"}, status_code=500)
 
-# ========== История ==========
 @router.get("/admin/ai-coder/history/{user_id}")
 def ai_coder_history(request: Request, user_id: str):
-    if not supabase: return {"error": "Supabase не настроен"}
+    if not supabase:
+        return {"error": "Supabase не настроен"}
     data = supabase.table("ai_coder_history").select("*").eq("user_id", user_id).execute()
     items = sorted(data.data, key=lambda x: x["created_at"], reverse=True)
     return templates.TemplateResponse("ai_coder_history.html", {"request": request, "items": items, "user_id": user_id})
 
 @router.get("/admin/ai-coder/history/item/{item_id}")
 def ai_coder_history_item(request: Request, item_id: str):
-    if not supabase: return {"error": "Supabase не настроен"}
+    if not supabase:
+        return {"error": "Supabase не настроен"}
     data = supabase.table("ai_coder_history").select("*").eq("id", item_id).single().execute()
     return templates.TemplateResponse("ai_coder_history_item.html", {"request": request, "item": data.data})
 
-@router.get("/admin/ai-coder/api/history/{user_id}")
-def get_history_api(user_id: str, offset: int = 0):
-    if not supabase: return JSONResponse({"error": "Supabase not configured"}, status_code=500)
-    data = supabase.table("ai_coder_messages") \
-        .select("*") \
-        .eq("user_id", user_id) \
-        .order("created_at", desc=False) \
-        .range(offset, offset + 10) \
-        .execute()
-    messages = [{"role": i["role"], "content": i["content"]} for i in data.data]
-    return messages
-
-# ========== Download ==========
 ALLOWED_DIR = tempfile.gettempdir()
 
-@router.get("/admin/ai-coder/download", response_class=FileResponse)
-async def download_file(path: str):
+@router.get("/admin/ai-coder/download")
+def download_file(path: str):
     abs_path = os.path.abspath(path)
     if not abs_path.startswith(ALLOWED_DIR) or not os.path.exists(abs_path):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
-    return FileResponse(abs_path, filename="fixed_project.zip", media_type="application/zip")
+    return FileResponse(abs_path, filename="fixed_project.zip")
