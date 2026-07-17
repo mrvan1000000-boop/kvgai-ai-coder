@@ -3,243 +3,499 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Coder - Чат</title>
+    <title>AI Coder - Чат с нейросетью</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
-        :root {
-            --bg-primary: #0b0d14;
-            --bg-elevated: #13161f;
-            --bg-card: #1a1e2a;
-            --bg-input: #0f121c;
-            --border-color: #2a2f3f;
-            --text-primary: #e8edf5;
-            --text-secondary: #9aa4c0;
-            --text-muted: #6a7290;
-            --accent: #4f8aff;
-            --accent-hover: #6a9eff;
-            --success: #4cd9a0;
-            --danger: #ff5e7a;
-            --radius: 14px;
-            --radius-sm: 8px;
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
         
-        * { margin:0; padding:0; box-sizing:border-box; }
         body {
-            background: var(--bg-primary);
-            color: var(--text-primary);
-            font-family: 'Inter', system-ui, -apple-system, sans-serif;
-            height: 100vh;
-            overflow: hidden;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
         }
-        
-        .app-shell { display:flex; height:100vh; }
-        
-        .sidebar {
-            width: 240px; background: var(--bg-elevated);
-            border-right: 1px solid var(--border-color);
-            padding: 20px 16px; display:flex; flex-direction:column;
-            flex-shrink:0;
-        }
-        
-        .logo-block .logo {
-            font-weight:600; font-size:18px;
-            background: linear-gradient(135deg, var(--accent), #a78bfa);
-            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-        }
-        .logo-block .subtitle { font-size:13px; color:var(--text-secondary); margin-top:2px; }
-        
-        .sidebar-nav { display:flex; flex-direction:column; gap:4px; margin-top:24px; }
-        .nav-item {
-            display:flex; align-items:center; gap:10px; padding:8px 12px;
-            border-radius:var(--radius-sm); color:var(--text-secondary);
-            text-decoration:none; font-size:14px; transition:0.2s;
-        }
-        .nav-item:hover, .nav-item.active { background:rgba(79,140,255,0.10); color:var(--text-primary); }
-        
-        .sidebar-footer { margin-top:auto; border-top:1px solid var(--border-color); padding-top:16px; }
-        .user-pill { display:flex; align-items:center; gap:10px; }
-        .user-avatar {
-            width:34px; height:34px; border-radius:50%;
-            background:rgba(79,140,255,0.10); display:flex; align-items:center;
-            justify-content:center; color:var(--accent); font-size:13px; font-weight:600;
-        }
-        .user-meta .user-name { font-weight:500; font-size:13px; }
-        .user-meta .user-id { font-size:11px; color:var(--text-muted); word-break:break-all; }
-        
-        .main { flex:1; display:flex; flex-direction:column; height:100vh; }
         
         .chat-container {
-            display:flex; flex-direction:column; height:100%;
-            padding:12px 20px 16px 20px;
+            width: 100%;
+            max-width: 1000px;
+            height: 95vh;
+            display: flex;
+            flex-direction: column;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(12px);
+            border-radius: 24px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 24px;
         }
         
-        .chat-header { flex-shrink:0; padding-bottom:8px; }
-        .chat-header h1 { font-size:22px; font-weight:600; }
-        .chat-header p { color:var(--text-secondary); font-size:14px; }
-        
-        .chat-window {
-            flex:1; overflow-y:auto; margin-bottom:10px;
-            background:var(--bg-elevated); border-radius:var(--radius);
-            border:1px solid var(--border-color); padding:16px;
-            display:flex; flex-direction:column; gap:14px;
+        .chat-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 20px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
         }
         
-        .message { display:flex; gap:10px; }
-        .message-user { flex-direction:row-reverse; }
-        .message-user .message-content { background:var(--accent); color:#fff; }
-        .message-assistant .message-content { background:var(--bg-card); border:1px solid var(--border-color); }
-        
-        .message-avatar {
-            width:30px; height:30px; border-radius:50%; flex-shrink:0;
-            display:flex; align-items:center; justify-content:center; font-size:12px;
+        .chat-header i {
+            font-size: 28px;
+            color: #c084fc;
         }
-        .message-user .message-avatar { background:var(--accent); color:#fff; }
-        .message-assistant .message-avatar { background:var(--border-color); color:var(--text-primary); }
         
-        .message-content {
-            flex:1; padding:10px 14px; border-radius:var(--radius-sm);
-            max-width:80%; word-wrap:break-word;
+        .chat-header h1 {
+            font-size: 22px;
+            color: #fff;
+            font-weight: 600;
         }
-        .message-content .message-label {
-            font-size:11px; font-weight:600; text-transform:uppercase;
-            letter-spacing:0.05em; margin-bottom:4px; opacity:0.7;
-        }
-        .message-content .message-body { font-size:14px; white-space:pre-wrap; }
         
-        .chat-form {
-            flex-shrink:0; background:var(--bg-elevated);
-            border-radius:var(--radius); padding:10px 14px 12px 14px;
-            border:1px solid var(--border-color);
+        .chat-header span {
+            margin-left: auto;
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.5);
+            background: rgba(255, 255, 255, 0.1);
+            padding: 4px 12px;
+            border-radius: 12px;
+        }
+        
+        .messages-area {
+            flex: 1;
+            overflow-y: auto;
+            padding-right: 8px;
+            margin-bottom: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        
+        .messages-area::-webkit-scrollbar {
+            width: 4px;
+        }
+        
+        .messages-area::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        
+        .messages-area::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+        }
+        
+        .message {
+            display: flex;
+            gap: 10px;
+            max-width: 85%;
+            animation: fadeIn 0.3s ease;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .message.user {
+            align-self: flex-end;
+            flex-direction: row-reverse;
+        }
+        
+        .message.assistant {
+            align-self: flex-start;
+        }
+        
+        .message .avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+        }
+        
+        .message.user .avatar {
+            background: #7c3aed;
+        }
+        
+        .message .bubble {
+            padding: 12px 18px;
+            border-radius: 18px;
+            font-size: 14px;
+            line-height: 1.6;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+        }
+        
+        .message.user .bubble {
+            background: #7c3aed;
+            color: #fff;
+            border-bottom-right-radius: 4px;
+        }
+        
+        .message.assistant .bubble {
+            background: rgba(255, 255, 255, 0.08);
+            color: #e0e0e0;
+            border-bottom-left-radius: 4px;
+        }
+        
+        .message.system .bubble {
+            background: rgba(255, 193, 7, 0.15);
+            color: #ffc107;
+            border-left: 3px solid #ffc107;
         }
         
         .input-area {
-            display:flex; gap:8px; align-items:flex-end;
-            background:var(--bg-input); border-radius:var(--radius-sm);
-            border:1px solid var(--border-color); padding:4px 8px;
-        }
-        .input-area textarea {
-            flex:1; background:transparent; border:none; padding:6px 0;
-            color:var(--text-primary); font-size:14px; resize:none;
-            min-height:32px; max-height:100px;
-        }
-        .input-area textarea:focus { outline:none; }
-        .btn-send {
-            width:30px; height:30px; border-radius:50%;
-            background:var(--accent); color:#fff; border:none; cursor:pointer;
+            display: flex;
+            gap: 10px;
+            align-items: flex-end;
+            background: rgba(255, 255, 255, 0.06);
+            border-radius: 16px;
+            padding: 8px 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: border-color 0.3s;
         }
         
-        @media (max-width:768px) {
-            .sidebar { width:100%; height:auto; position:relative; flex-direction:row; flex-wrap:wrap; }
-            .sidebar-nav { flex-direction:row; }
-            .main { height:calc(100vh - 150px); }
-            .chat-container { padding:8px 12px 12px 12px; }
+        .input-area:focus-within {
+            border-color: #7c3aed;
+        }
+        
+        .input-area textarea {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: #fff;
+            font-size: 14px;
+            resize: none;
+            min-height: 24px;
+            max-height: 120px;
+            padding: 6px 0;
+            font-family: inherit;
+        }
+        
+        .input-area textarea::placeholder {
+            color: rgba(255, 255, 255, 0.35);
+        }
+        
+        .input-area textarea:focus {
+            outline: none;
+        }
+        
+        .input-area button {
+            background: #7c3aed;
+            border: none;
+            color: #fff;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        
+        .input-area button:hover {
+            background: #6d28d9;
+            transform: scale(1.05);
+        }
+        
+        .input-area button:active {
+            transform: scale(0.95);
+        }
+        
+        .input-tools {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-bottom: 8px;
+        }
+        
+        .input-tools select,
+        .input-tools input[type="text"] {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: #fff;
+            padding: 8px 12px;
+            border-radius: 10px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: border-color 0.3s;
+        }
+        
+        .input-tools select:focus,
+        .input-tools input[type="text"]:focus {
+            outline: none;
+            border-color: #7c3aed;
+        }
+        
+        .input-tools select option {
+            background: #1a1a2e;
+            color: #fff;
+        }
+        
+        .input-tools label {
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 13px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 12px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.05);
+            transition: background 0.3s;
+        }
+        
+        .input-tools label:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+        
+        .input-tools label i {
+            font-size: 14px;
+        }
+        
+        .hidden {
+            display: none !important;
+        }
+        
+        .shortcut-hint {
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.3);
+            margin-top: 6px;
+            text-align: center;
+        }
+        
+        .download-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: #10b981;
+            color: #fff;
+            padding: 8px 16px;
+            border-radius: 10px;
+            text-decoration: none;
+            font-size: 14px;
+            margin-top: 8px;
+            transition: background 0.3s;
+        }
+        
+        .download-link:hover {
+            background: #059669;
+        }
+        
+        .empty-state {
+            text-align: center;
+            margin: auto;
+            color: rgba(255, 255, 255, 0.3);
+        }
+        
+        .empty-state i {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+        
+        .empty-state p {
+            font-size: 16px;
+        }
+        
+        .typing-indicator {
+            display: flex;
+            gap: 4px;
+            padding: 12px 18px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 18px;
+            border-bottom-left-radius: 4px;
+            align-self: flex-start;
+        }
+        
+        .typing-indicator span {
+            width: 8px;
+            height: 8px;
+            background: #c084fc;
+            border-radius: 50%;
+            animation: typing 1.4s infinite ease-in-out;
+        }
+        
+        .typing-indicator span:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+        
+        .typing-indicator span:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+        
+        @keyframes typing {
+            0%, 100% { transform: translateY(0); opacity: 0.4; }
+            50% { transform: translateY(-10px); opacity: 1; }
         }
     </style>
 </head>
 <body>
-<div class="app-shell">
-    <aside class="sidebar">
-        <div class="logo-block">
-            <div class="logo">KVG AI Studio</div>
-            <div class="subtitle"><i class="fas fa-code"></i> AI‑Coder</div>
+    <div class="chat-container">
+        <div class="chat-header">
+            <i class="fas fa-robot"></i>
+            <h1>AI Coder Agent</h1>
+            <span>{{ user_id[:8] }}...</span>
         </div>
-        <nav class="sidebar-nav">
-            <a href="/admin/ai-coder?user_id={{ user_id }}" class="nav-item active">
-                <i class="fas fa-comment-dots"></i> Чат
-            </a>
-            <a href="/admin/ai-coder/tasks" class="nav-item">
-                <i class="fas fa-tasks"></i> Задачи
-            </a>
-            <a href="/admin/ai-coder/history/{{ user_id }}" class="nav-item">
-                <i class="fas fa-history"></i> История
-            </a>
-        </nav>
-        <div class="sidebar-footer">
-            <div class="user-pill">
-                <div class="user-avatar">AI</div>
-                <div class="user-meta">
-                    <div class="user-name">Пользователь</div>
-                    <div class="user-id">{{ user_id[:16] }}...</div>
-                </div>
-            </div>
-        </div>
-    </aside>
-    
-    <main class="main">
-        <div class="chat-container">
-            <div class="chat-header">
-                <h1>🧠 AI Coder</h1>
-                <p>Чат с нейросетью для исправления кода</p>
-            </div>
-            
-            <div class="chat-window" id="chatWindow">
+
+        <div class="messages-area" id="messagesArea">
+            {% if messages %}
                 {% for msg in messages %}
-                <div class="message message-{{ msg.role }}">
-                    <div class="message-avatar">
-                        {% if msg.role == 'user' %}👤{% else %}🤖{% endif %}
+                    <div class="message {{ msg.role }}">
+                        <div class="avatar">
+                            {% if msg.role == 'user' %}
+                                👤
+                            {% elif msg.role == 'assistant' %}
+                                🤖
+                            {% else %}
+                                ⚠️
+                            {% endif %}
+                        </div>
+                        <div class="bubble">{{ msg.content }}</div>
                     </div>
-                    <div class="message-content">
-                        <div class="message-label">{{ msg.role }}</div>
-                        <div class="message-body">{{ msg.content }}</div>
-                    </div>
-                </div>
                 {% endfor %}
-                
-                {% if not messages %}
-                <div style="text-align:center;padding:40px;color:var(--text-muted);">
-                    <i class="fas fa-robot" style="font-size:48px;margin-bottom:15px;"></i>
+            {% else %}
+                <div class="empty-state">
+                    <i class="fas fa-comment-dots"></i>
                     <p>Начните диалог! Опишите задачу по коду.</p>
+                    <p style="font-size: 13px; margin-top: 8px; color: rgba(255,255,255,0.2);">
+                        Выберите модель и отправьте ваш код для анализа
+                    </p>
                 </div>
-                {% endif %}
-            </div>
-            
-            <form method="post" enctype="multipart/form-data" class="chat-form" id="chatForm">
-                <input type="hidden" name="user_id" value="{{ user_id }}">
-                
-                <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">
-                    <select name="model" style="background:var(--bg-input);color:var(--text-primary);border:1px solid var(--border-color);border-radius:var(--radius-sm);padding:4px 8px;font-size:12px;">
-                        {% for m in available_models %}
-                        <option value="{{ m }}" {% if m == selected_model %}selected{% endif %}>{{ m.split(':')[1] }}</option>
-                        {% endfor %}
-                    </select>
-                    <label style="font-size:12px;color:var(--text-secondary);cursor:pointer;">
-                        <i class="fas fa-paperclip"></i>
-                        <input type="file" name="file" style="display:none;">
-                    </label>
-                </div>
-                
-                <div class="input-area">
-                    <textarea name="task" id="taskInput" placeholder="Опишите задачу по коду..." required>{{ task }}</textarea>
-                    <button type="submit" class="btn-send">
-                        <i class="fas fa-paper-plane"></i>
-                    </button>
-                </div>
-            </form>
+            {% endif %}
             
             {% if result %}
-            <div style="margin-top:10px;padding:10px;background:var(--bg-card);border-radius:var(--radius-sm);max-height:200px;overflow-y:auto;">
-                <div style="font-size:12px;color:var(--text-secondary);margin-bottom:5px;">Последний ответ:</div>
-                <pre style="font-size:13px;white-space:pre-wrap;color:var(--text-primary);">{{ result }}</pre>
-            </div>
+                <div class="message assistant">
+                    <div class="avatar">🤖</div>
+                    <div class="bubble">{{ result }}</div>
+                </div>
+                {% if download %}
+                    <a href="{{ download }}" class="download-link" style="align-self: flex-start;">
+                        <i class="fas fa-download"></i>
+                        Скачать исправленный проект
+                    </a>
+                {% endif %}
             {% endif %}
         </div>
-    </main>
-</div>
 
-<script>
-    // Автоскролл чата вниз
-    const chatWindow = document.getElementById('chatWindow');
-    if (chatWindow) {
-        chatWindow.scrollTop = chatWindow.scrollHeight;
-    }
-    
-    // Авто-отправка по Enter+Shift
-    document.getElementById('taskInput').addEventListener('keydown', function(e) {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            document.getElementById('chatForm').submit();
+        <form method="post" enctype="multipart/form-data" id="chatForm">
+            <input type="hidden" name="user_id" value="{{ user_id }}">
+            
+            <div class="input-tools">
+                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                    <label for="modelSelect" style="color: rgba(255,255,255,0.5); font-size: 12px;">
+                        Модель:
+                    </label>
+                    <select name="model" id="modelSelect" onchange="toggleCustomModel()">
+                        {% for m in available_models %}
+                            <option value="{{ m }}" {% if m == selected_model %}selected{% endif %}>
+                                {{ m.split(':')[1] if ':' in m else m }}
+                            </option>
+                        {% endfor %}
+                        <option value="custom" {% if selected_model not in available_models %}selected{% endif %}>
+                            ⭐ Своя модель
+                        </option>
+                    </select>
+                    
+                    <input type="text" 
+                           name="custom_model" 
+                           id="customModelInput" 
+                           placeholder="Например: deepseek/deepseek-v4-flash"
+                           value="{{ custom_model if custom_model else '' }}"
+                           class="{% if selected_model not in available_models %}{% else %}hidden{% endif %}"
+                           style="width: 240px;">
+                </div>
+                
+                <label for="fileUpload" style="margin-left: auto;">
+                    <i class="fas fa-paperclip"></i>
+                    Файл
+                    <input type="file" name="file" id="fileUpload" style="display: none;">
+                </label>
+            </div>
+
+            <div class="input-area">
+                <textarea 
+                    name="task" 
+                    id="taskInput" 
+                    placeholder="Опишите задачу по коду... (Ctrl+Enter для отправки)"
+                    required>{{ task }}</textarea>
+                <button type="submit" id="sendBtn">
+                    <i class="fas fa-paper-plane"></i>
+                </button>
+            </div>
+            <div class="shortcut-hint">
+                💡 Enter — новая строка, Ctrl+Enter — отправить
+            </div>
+        </form>
+    </div>
+
+    <script>
+        // Показывать/скрывать поле для кастомной модели
+        function toggleCustomModel() {
+            const select = document.getElementById('modelSelect');
+            const customInput = document.getElementById('customModelInput');
+            
+            if (select.value === 'custom') {
+                customInput.classList.remove('hidden');
+                customInput.focus();
+            } else {
+                customInput.classList.add('hidden');
+                customInput.value = '';
+            }
         }
-    });
-</script>
+        
+        // Отправка по Ctrl+Enter
+        document.getElementById('taskInput').addEventListener('keydown', function(e) {
+            if (e.ctrlKey && e.key === 'Enter') {
+                e.preventDefault();
+                document.getElementById('chatForm').submit();
+            }
+        });
+        
+        // Автоскролл вниз при загрузке
+        const area = document.getElementById('messagesArea');
+        if (area) {
+            area.scrollTop = area.scrollHeight;
+        }
+        
+        // Показывать имя файла после выбора
+        document.getElementById('fileUpload').addEventListener('change', function(e) {
+            const label = this.closest('label');
+            if (this.files.length > 0) {
+                const fileName = this.files[0].name;
+                const icon = label.querySelector('i');
+                if (icon) {
+                    label.innerHTML = `<i class="fas fa-file"></i> ${fileName}`;
+                    label.style.borderColor = '#7c3aed';
+                }
+            }
+        });
+        
+        // Отключение кнопки отправки при отправке формы
+        document.getElementById('chatForm').addEventListener('submit', function(e) {
+            const btn = document.getElementById('sendBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            
+            // Показать индикатор печатания
+            const area = document.getElementById('messagesArea');
+            const typingDiv = document.createElement('div');
+            typingDiv.className = 'typing-indicator';
+            typingDiv.innerHTML = '<span></span><span></span><span></span>';
+            typingDiv.id = 'typingIndicator';
+            area.appendChild(typingDiv);
+            area.scrollTop = area.scrollHeight;
+        });
+    </script>
 </body>
 </html>
