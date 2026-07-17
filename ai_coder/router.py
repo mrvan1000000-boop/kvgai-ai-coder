@@ -94,12 +94,22 @@ def call_model_with_fallback(messages, primary_model):
 
     for full in unique_models:
         try:
-            provider, model_name = full.split(":", 1) if ":" in full else ("openrouter", full)
-            if provider == "openrouter" and OPENROUTER_API_KEY:
-                content = call_openrouter(model_name, messages)
-            elif provider == "groq" and groq_client:
+            # Если модель начинается с "groq:", используем groq
+            if full.startswith("groq:"):
+                model_name = full.split(":", 1)[1]
                 content = call_groq(model_name, messages)
-            else: continue
+            else:
+                # Иначе считаем что это openrouter (включая кастомные модели)
+                # Если модель содержит ":", берем часть после первого двоеточия,
+                # если нет — используем как есть (для кастомных, где пользователь ввел полностью провайдер/модель)
+                if ":" in full and not full.startswith("openrouter:"):
+                    # Возможно это кастомная модель, переданная пользователем (например, deepseek/deepseek-v4-flash)
+                    model_name = full
+                elif full.startswith("openrouter:"):
+                    model_name = full.split(":", 1)[1]
+                else:
+                    model_name = full
+                content = call_openrouter(model_name, messages)
             if content: return content
         except Exception as e:
             logger.warning(f"Model {full} failed: {e}")
@@ -198,6 +208,8 @@ def ensure_user(ip: str, user_id: str | None = None) -> str:
 async def process_request(request, task, file, model, custom_model, user_id):
     ip = get_client_ip(request)
     uid = ensure_user(ip, user_id)
+    
+    # Определяем выбранную модель. Если model == "custom" и custom_model не пусто, используем custom_model.
     selected = custom_model if (model == "custom" and custom_model) else (model if model in AVAILABLE_MODELS else AVAILABLE_MODELS[0])
 
     fc, zc, fname = "", {}, ""
@@ -219,10 +231,6 @@ async def process_request(request, task, file, model, custom_model, user_id):
     save_message(uid, "user", msg_content)
     save_message(uid, "assistant", result)
     
-    # Сохраняем в историю
-    save_history(uid, task, fname, result)
-
-    # Если успешно и есть файлы — создаём задачу для git_agent
     if not result.startswith("❌") and supabase:
         target_path = fname if fname else "project_root"
         supabase.table("ai_coder_tasks").insert({
@@ -231,6 +239,8 @@ async def process_request(request, task, file, model, custom_model, user_id):
             "prompt": task,
             "status": "pending"
         }).execute()
+    
+    save_history(uid, task, fname, result)
 
     fixed = parse_fixed_files(result)
     zip_path, zip_name = create_fixed_zip(fixed)
@@ -243,10 +253,7 @@ async def process_request(request, task, file, model, custom_model, user_id):
 def ai_coder_page(request: Request, user_id: str | None = None):
     ip = get_client_ip(request)
     uid = ensure_user(ip, user_id)
-    
-    # Загружаем историю сообщений
     messages = load_messages(uid)
-    
     return templates.TemplateResponse("ai_coder_chat.html", {
         "request": request,
         "messages": messages,
@@ -259,10 +266,7 @@ def ai_coder_page(request: Request, user_id: str | None = None):
 async def ai_coder(request: Request, task: str = Form(...), file: UploadFile = File(None),
                    model: str = Form(None), custom_model: str = Form(None), user_id: str = Form(None)):
     uid, sel, result, dl = await process_request(request, task, file, model, custom_model, user_id)
-    
-    # Загружаем обновлённые сообщения
     messages = load_messages(uid)
-    
     return templates.TemplateResponse("ai_coder_chat.html", {
         "request": request,
         "messages": messages,
@@ -274,51 +278,6 @@ async def ai_coder(request: Request, task: str = Form(...), file: UploadFile = F
         "selected_model": sel,
         "custom_model": custom_model if model == "custom" else ""
     })
-
-@router.post("/admin/ai-coder/api")
-async def ai_coder_api(request: Request, task: str = Form(...), file: UploadFile = File(None),
-                       model: str = Form(None), custom_model: str = Form(None), user_id: str = Form(None)):
-    try:
-        uid, sel, result, dl = await process_request(request, task, file, model, custom_model, user_id)
-        if result.startswith("❌"):
-            return JSONResponse({"error": result}, status_code=503)
-        return JSONResponse({"result": result, "download_url": dl, "user_id": uid})
-    except Exception as e:
-        logger.exception("ai_coder_api error")
-        return JSONResponse({"error": f"Внутренняя ошибка: {e}"}, status_code=500)
-
-# --- НОВЫЙ ЭНДПОИНТ ДЛЯ ЗАДАЧ ---
-
-@router.get("/admin/ai-coder/tasks")
-def tasks_page(request: Request):
-    """Страница для создания задач для git_agent"""
-    return templates.TemplateResponse("ai_coder_tasks.html", {
-        "request": request,
-        "available_models": AVAILABLE_MODELS
-    })
-
-@router.post("/admin/ai-coder/tasks")
-async def create_task(request: Request, file_path: str = Form(...), prompt: str = Form(...)):
-    """Создаёт задачу в ai_coder_tasks для git_agent"""
-    if not supabase:
-        return JSONResponse({"error": "Supabase не настроен"}, status_code=500)
-    
-    try:
-        supabase.table("ai_coder_tasks").insert({
-            "user_id": "00000000-0000-0000-0000-000000000001",
-            "file_path": file_path,
-            "prompt": prompt,
-            "status": "pending"
-        }).execute()
-        return templates.TemplateResponse("ai_coder_tasks.html", {
-            "request": request,
-            "result": f"✅ Задача создана: {file_path}"
-        })
-    except Exception as e:
-        return templates.TemplateResponse("ai_coder_tasks.html", {
-            "request": request,
-            "result": f"❌ Ошибка: {e}"
-        })
 
 @router.get("/admin/ai-coder/history/{user_id}")
 def ai_coder_history(request: Request, user_id: str):
@@ -333,11 +292,24 @@ def ai_coder_history_item(request: Request, item_id: str):
     data = supabase.table("ai_coder_history").select("*").eq("id", item_id).single().execute()
     return templates.TemplateResponse("ai_coder_history_item.html", {"request": request, "item": data.data})
 
-ALLOWED_DIR = tempfile.gettempdir()
-
 @router.get("/admin/ai-coder/download")
 def download_file(path: str):
     abs_path = os.path.abspath(path)
-    if not abs_path.startswith(ALLOWED_DIR) or not os.path.exists(abs_path):
+    if not abs_path.startswith(tempfile.gettempdir()) or not os.path.exists(abs_path):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     return FileResponse(abs_path, filename="fixed_project.zip")
+
+@router.get("/admin/ai-coder/tasks")
+def tasks_page(request: Request):
+    return templates.TemplateResponse("ai_coder_tasks.html", {"request": request})
+
+@router.post("/admin/ai-coder/tasks")
+async def create_task(request: Request, file_path: str = Form(...), prompt: str = Form(...)):
+    if not supabase: return JSONResponse({"error": "Supabase не настроен"}, status_code=500)
+    supabase.table("ai_coder_tasks").insert({
+        "user_id": "00000000-0000-0000-0000-000000000001",
+        "file_path": file_path,
+        "prompt": prompt,
+        "status": "pending"
+    }).execute()
+    return JSONResponse({"status": "success"})
