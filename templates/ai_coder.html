@@ -1,42 +1,9 @@
-{% extends "layout.html" %}
-{% block content %}
-<div class="chat-container">
-    <div class="chat-header">
-        <h1>AI‑Coder ассистент</h1>
-        <p>Оптимизация кода, поиск ошибок, рефакторинг проектов.</p>
-    </div>
-    <div class="chat-window" id="chatWindow">
-        {# Подгружаем прошлые сообщения #}
-        {% if chat_history %}
-            {% for msg in chat_history %}
-                <div class="message message-{{ msg.role }}">
-                    <div class="message-avatar"><i class="fas fa-{{ 'user' if msg.role == 'user' else 'robot' }}"></i></div>
-                    <div class="message-content">
-                        <div class="message-label">{{ 'Задача' if msg.role == 'user' else 'Ответ AI' }}</div>
-                        <div class="message-body">
-                            {% if msg.role == 'assistant' %}
-                                <pre><code class="language-plaintext">{{ msg.content }}</code></pre>
-                                <button class="copy-btn" onclick="copyCode(this)"><i class="fas fa-copy"></i> Копировать</button>
-                            {% else %}
-                                {{ msg.content }}
-                            {% endif %}
-                        </div>
-                    </div>
-                </div>
-            {% endfor %}
-        {% else %}
-            <div class="message message-system">
-                <div class="message-avatar"><i class="fas fa-info-circle"></i></div>
-                <div class="message-content">
-                    <div class="message-body">
-                        <i class="fas fa-upload" style="margin-right:8px;"></i>
-                        Начни с описания задачи, прикрепи файл или ZIP проекта — AI‑Coder проанализирует и вернёт исправленный код.
+
                     </div>
                 </div>
             </div>
         {% endif %}
     </div>
-    {# остальная часть формы и скриптов без изменений #}
     <form class="chat-form" id="chatForm" enctype="multipart/form-data">
         <input type="hidden" name="user_id" id="user_id_input" value="{{ user_id or '' }}">
         <div class="input-area">
@@ -147,8 +114,6 @@ chatForm.onsubmit = async e => {
     if (uid) localStorage.setItem("kvg_ai_user_id", uid);
     const inp = document.getElementById('user_id_input');
     if (!inp.value && localStorage.getItem('kvg_ai_user_id')) inp.value = localStorage.getItem('kvg_ai_user_id');
-    // Подсветка кода для подгруженных сообщений
-    document.querySelectorAll('pre code').forEach(b => hljs.highlightElement(b));
 })();
 </script>
 {% endblock %}
