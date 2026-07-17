@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Coder - Чат</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        :root {
+            --bg-primary: #0b0d14;
+            --bg-elevated: #13161f;
+            --bg-card: #1a1e2a;
+            --bg-input: #0f121c;
+            --border-color: #2a2f3f;
+            --text-primary: #e8edf5;
+            --text-secondary: #9aa4c0;
+            --text-muted: #6a7290;
+            --accent: #4f8aff;
+            --accent-hover: #6a9eff;
+            --success: #4cd9a0;
+            --danger: #ff5e7a;
+            --radius: 14px;
+            --radius-sm: 8px;
+        }
+        
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        .app-shell { display:flex; height:100vh; }
+        
+        .sidebar {
+            width: 240px; background: var(--bg-elevated);
+            border-right: 1px solid var(--border-color);
+            padding: 20px 16px; display:flex; flex-direction:column;
+            flex-shrink:0;
+        }
+        
+        .logo-block .logo {
+            font-weight:600; font-size:18px;
+            background: linear-gradient(135deg, var(--accent), #a78bfa);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        }
+        .logo-block .subtitle { font-size:13px; color:var(--text-secondary); margin-top:2px; }
+        
+        .sidebar-nav { display:flex; flex-direction:column; gap:4px; margin-top:24px; }
+        .nav-item {
+            display:flex; align-items:center; gap:10px; padding:8px 12px;
+            border-radius:var(--radius-sm); color:var(--text-secondary);
+            text-decoration:none; font-size:14px; transition:0.2s;
+        }
+        .nav-item:hover, .nav-item.active { background:rgba(79,140,255,0.10); color:var(--text-primary); }
+        
+        .sidebar-footer { margin-top:auto; border-top:1px solid var(--border-color); padding-top:16px; }
+        .user-pill { display:flex; align-items:center; gap:10px; }
+        .user-avatar {
+            width:34px; height:34px; border-radius:50%;
+            background:rgba(79,140,255,0.10); display:flex; align-items:center;
+            justify-content:center; color:var(--accent); font-size:13px; font-weight:600;
+        }
+        .user-meta .user-name { font-weight:500; font-size:13px; }
+        .user-meta .user-id { font-size:11px; color:var(--text-muted); word-break:break-all; }
+        
+        .main { flex:1; display:flex; flex-direction:column; height:100vh; }
+        
+        .chat-container {
+            display:flex; flex-direction:column; height:100%;
+            padding:12px 20px 16px 20px;
+        }
+        
+        .chat-header { flex-shrink:0; padding-bottom:8px; }
+        .chat-header h1 { font-size:22px; font-weight:600; }
+        .chat-header p { color:var(--text-secondary); font-size:14px; }
+        
+        .chat-window {
+            flex:1; overflow-y:auto; margin-bottom:10px;
+            background:var(--bg-elevated); border-radius:var(--radius);
+            border:1px solid var(--border-color); padding:16px;
+            display:flex; flex-direction:column; gap:14px;
+        }
+        
+        .message { display:flex; gap:10px; }
+        .message-user { flex-direction:row-reverse; }
+        .message-user .message-content { background:var(--accent); color:#fff; }
+        .message-assistant .message-content { background:var(--bg-card); border:1px solid var(--border-color); }
+        
+        .message-avatar {
+            width:30px; height:30px; border-radius:50%; flex-shrink:0;
+            display:flex; align-items:center; justify-content:center; font-size:12px;
+        }
+        .message-user .message-avatar { background:var(--accent); color:#fff; }
+        .message-assistant .message-avatar { background:var(--border-color); color:var(--text-primary); }
+        
+        .message-content {
+            flex:1; padding:10px 14px; border-radius:var(--radius-sm);
+            max-width:80%; word-wrap:break-word;
+        }
+        .message-content .message-label {
+            font-size:11px; font-weight:600; text-transform:uppercase;
+            letter-spacing:0.05em; margin-bottom:4px; opacity:0.7;
+        }
+        .message-content .message-body { font-size:14px; white-space:pre-wrap; }
+        
+        .chat-form {
+            flex-shrink:0; background:var(--bg-elevated);
+            border-radius:var(--radius); padding:10px 14px 12px 14px;
+            border:1px solid var(--border-color);
+        }
+        
+        .input-area {
+            display:flex; gap:8px; align-items:flex-end;
+            background:var(--bg-input); border-radius:var(--radius-sm);
+            border:1px solid var(--border-color); padding:4px 8px;
+        }
+        .input-area textarea {
+            flex:1; background:transparent; border:none; padding:6px 0;
+            color:var(--text-primary); font-size:14px; resize:none;
+            min-height:32px; max-height:100px;
+        }
+        .input-area textarea:focus { outline:none; }
+        .btn-send {
+            width:30px; height:30px; border-radius:50%;
+            background:var(--accent); color:#fff; border:none; cursor:pointer;
+        }
+        
+        @media (max-width:768px) {
+            .sidebar { width:100%; height:auto; position:relative; flex-direction:row; flex-wrap:wrap; }
+            .sidebar-nav { flex-direction:row; }
+            .main { height:calc(100vh - 150px); }
+            .chat-container { padding:8px 12px 12px 12px; }
+        }
+    </style>
+</head>
+<body>
+<div class="app-shell">
+    <aside class="sidebar">
+        <div class="logo-block">
+            <div class="logo">KVG AI Studio</div>
+            <div class="subtitle"><i class="fas fa-code"></i> AI‑Coder</div>
+        </div>
+        <nav class="sidebar-nav">
+            <a href="/admin/ai-coder?user_id={{ user_id }}" class="nav-item active">
+                <i class="fas fa-comment-dots"></i> Чат
+            </a>
+            <a href="/admin/ai-coder/tasks" class="nav-item">
+                <i class="fas fa-tasks"></i> Задачи
+            </a>
+            <a href="/admin/ai-coder/history/{{ user_id }}" class="nav-item">
+                <i class="fas fa-history"></i> История
+            </a>
+        </nav>
+        <div class="sidebar-footer">
+            <div class="user-pill">
+                <div class="user-avatar">AI</div>
+                <div class="user-meta">
+                    <div class="user-name">Пользователь</div>
+                    <div class="user-id">{{ user_id[:16] }}...</div>
+                </div>
+            </div>
+        </div>
+    </aside>
+    
+    <main class="main">
+        <div class="chat-container">
+            <div class="chat-header">
+                <h1>🧠 AI Coder</h1>
+                <p>Чат с нейросетью для исправления кода</p>
+            </div>
+            
+            <div class="chat-window" id="chatWindow">
+                {% for msg in messages %}
+                <div class="message message-{{ msg.role }}">
+                    <div class="message-avatar">
+                        {% if msg.role == 'user' %}👤{% else %}🤖{% endif %}
+                    </div>
+                    <div class="message-content">
+                        <div class="message-label">{{ msg.role }}</div>
+                        <div class="message-body">{{ msg.content }}</div>
+                    </div>
+                </div>
+                {% endfor %}
+                
+                {% if not messages %}
+                <div style="text-align:center;padding:40px;color:var(--text-muted);">
+                    <i class="fas fa-robot" style="font-size:48px;margin-bottom:15px;"></i>
+                    <p>Начните диалог! Опишите задачу по коду.</p>
+                </div>
+                {% endif %}
+            </div>
+            
+            <form method="post" enctype="multipart/form-data" class="chat-form" id="chatForm">
+                <input type="hidden" name="user_id" value="{{ user_id }}">
+                
+                <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">
+                    <select name="model" style="background:var(--bg-input);color:var(--text-primary);border:1px solid var(--border-color);border-radius:var(--radius-sm);padding:4px 8px;font-size:12px;">
+                        {% for m in available_models %}
+                        <option value="{{ m }}" {% if m == selected_model %}selected{% endif %}>{{ m.split(':')[1] }}</option>
+                        {% endfor %}
+                    </select>
+                    <label style="font-size:12px;color:var(--text-secondary);cursor:pointer;">
+                        <i class="fas fa-paperclip"></i>
+                        <input type="file" name="file" style="display:none;">
+                    </label>
+                </div>
+                
+                <div class="input-area">
+                    <textarea name="task" id="taskInput" placeholder="Опишите задачу по коду..." required>{{ task }}</textarea>
+                    <button type="submit" class="btn-send">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </div>
+            </form>
+            
+            {% if result %}
+            <div style="margin-top:10px;padding:10px;background:var(--bg-card);border-radius:var(--radius-sm);max-height:200px;overflow-y:auto;">
+                <div style="font-size:12px;color:var(--text-secondary);margin-bottom:5px;">Последний ответ:</div>
+                <pre style="font-size:13px;white-space:pre-wrap;color:var(--text-primary);">{{ result }}</pre>
+            </div>
+            {% endif %}
+        </div>
+    </main>
+</div>
+
+<script>
+    // Автоскролл чата вниз
+    const chatWindow = document.getElementById('chatWindow');
+    if (chatWindow) {
+        chatWindow.scrollTop = chatWindow.scrollHeight;
+    }
+    
+    // Авто-отправка по Enter+Shift
+    document.getElementById('taskInput').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            document.getElementById('chatForm').submit();
+        }
+    });
+</script>
+</body>
+</html>
