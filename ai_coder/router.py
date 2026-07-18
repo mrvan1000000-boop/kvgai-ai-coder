@@ -282,12 +282,21 @@ async def ai_coder_api(
     task: str = Form(...),
     file: UploadFile = File(None),
     model: str = Form(None),
+    custom_model: str = Form(None),  # <-- добавлено
     user_id: str = Form(None)
 ):
     try:
         uid = user_id or str(uuid.uuid4())
-        selected_model = model if model in AVAILABLE_MODELS else AVAILABLE_MODELS[0]
+        
+        # Выбор модели
+        if model == "custom" and custom_model:
+            selected_model = custom_model
+        elif model in AVAILABLE_MODELS:
+            selected_model = model
+        else:
+            selected_model = AVAILABLE_MODELS[0]
 
+        # Остальной код без изменений...
         context_content = ""
         file_names = []
         zip_contents = {}
@@ -323,7 +332,6 @@ async def ai_coder_api(
         if fixed_files:
             fixed_zip_path = create_fixed_zip(fixed_files)
             download_url = f"/admin/ai-coder/download?path={fixed_zip_path}"
-            # Сохраняем ID последней записи истории для деплоя
             hist_res = supabase.table("ai_coder_history") \
                 .select("id") \
                 .eq("user_id", uid) \
