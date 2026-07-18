@@ -7,20 +7,18 @@
     </div>
 
     <div class="chat-window" id="chatWindow">
-        <!-- Если есть история из БД, показываем её -->
         {% if chat_history %}
             {% for msg in chat_history %}
                 <div class="message message-{{ msg.role }}">
                     <div class="message-avatar"><i class="fas fa-{% if msg.role == 'user' %}user{% else %}robot{% endif %}"></i></div>
                     <div class="message-content">
-                        <div class="message-label">{{ msg.role == 'user' and 'Задача' or 'Ответ AI‑Coder' }}</div>
+                        <div class="message-label">{{ 'Задача' if msg.role == 'user' else 'Ответ AI‑Coder' }}</div>
                         <div class="message-body">{{ msg.content }}</div>
                     </div>
                 </div>
             {% endfor %}
         {% endif %}
 
-        <!-- Если есть результат от текущего запроса (рендеринг с сервера) -->
         {% if result %}
             <div class="message message-user">
                 <div class="message-avatar"><i class="fas fa-user"></i></div>
@@ -29,13 +27,16 @@
                     <div class="message-body">{{ task }}</div>
                 </div>
             </div>
-            <div class="message message-assistant">
+            <div class="message message-assistant" id="assistantMessage">
                 <div class="message-avatar"><i class="fas fa-robot"></i></div>
                 <div class="message-content">
                     <div class="message-label">Ответ AI‑Coder</div>
                     <div class="message-body">
                         <pre><code class="language-plaintext">{{ result }}</code></pre>
                         <button class="copy-btn" onclick="copyCode(this)"><i class="fas fa-copy"></i> Копировать</button>
+                        <button class="btn btn-success deploy-btn" onclick="showDeployModal('{{ history_id }}')">
+                            <i class="fas fa-upload"></i> Применить изменения
+                        </button>
                     </div>
                 </div>
             </div>
@@ -91,9 +92,501 @@
     </form>
 </div>
 
+<!-- ===== МОДАЛЬНОЕ ОКНО ДЕПЛОЯ ===== -->
+<div id="deployModal" class="modal" style="display: none;">
+    <div class="modal-content">
+        <span class="modal-close" onclick="closeDeployModal()">&times;</span>
+        <h3>Применить изменения</h3>
+        <form id="deployForm">
+            <input type="hidden" id="deployHistoryId">
+            <div class="form-group">
+                <label>Провайдер:</label>
+                <select id="deployProvider">
+                    <option value="github">GitHub</option>
+                    <option value="ftp">FTP</option>
+                </select>
+            </div>
+            <div id="githubFields">
+                <div class="form-group">
+                    <label>Репозиторий (owner/repo):</label>
+                    <input type="text" id="deployRepo" placeholder="username/repo">
+                </div>
+                <div class="form-group">
+                    <label>Токен GitHub:</label>
+                    <input type="password" id="deployToken" placeholder="Ваш GitHub токен">
+                </div>
+                <div class="form-group">
+                    <label>Ветка:</label>
+                    <input type="text" id="deployBranch" value="main">
+                </div>
+            </div>
+            <div id="ftpFields" style="display: none;">
+                <div class="form-group">
+                    <label>Хост:</label>
+                    <input type="text" id="deployHost" placeholder="ftp.example.com">
+                </div>
+                <div class="form-group">
+                    <label>Имя пользователя:</label>
+                    <input type="text" id="deployUsername" placeholder="username">
+                </div>
+                <div class="form-group">
+                    <label>Пароль:</label>
+                    <input type="password" id="deployPassword" placeholder="password">
+                </div>
+                <div class="form-group">
+                    <label>Путь (оставьте / для корня):</label>
+                    <input type="text" id="deployPath" value="/">
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary">Применить</button>
+            <button type="button" class="btn btn-secondary" onclick="closeDeployModal()">Отмена</button>
+        </form>
+    </div>
+</div>
+
 <script>
-    // ... (весь JavaScript из предыдущего ответа, он уже был) ...
-    // Я вставлю его сжато, чтобы не занимать много места, но полная версия у вас уже есть.
-    // Если нужно, я пришлю его отдельно.
+    // ========================
+    // 1. Работа с файлами
+    // ========================
+    const fileInput = document.getElementById('fileInput');
+    const filePreview = document.getElementById('filePreview');
+    const fileNames = document.getElementById('fileNames');
+
+    fileInput.addEventListener('change', function() {
+        if (this.files.length > 0) {
+            fileNames.textContent = this.files[0].name;
+            filePreview.style.display = 'flex';
+            console.log('📎 Файл выбран:', this.files[0].name);
+        } else {
+            filePreview.style.display = 'none';
+        }
+    });
+
+    function clearFiles() {
+        fileInput.value = '';
+        filePreview.style.display = 'none';
+        console.log('🗑️ Файлы очищены');
+    }
+
+    // ========================
+    // 2. Авто-высота textarea
+    // ========================
+    const taskInput = document.getElementById('taskInput');
+    taskInput.addEventListener('input', function() {
+        this.style.height = 'auto';
+        this.style.height = this.scrollHeight + 'px';
+    });
+    taskInput.style.height = 'auto';
+    taskInput.style.height = taskInput.scrollHeight + 'px';
+
+    taskInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+            document.getElementById('chatForm').dispatchEvent(new Event('submit'));
+        }
+    });
+
+    // ========================
+    // 3. Копирование кода
+    // ========================
+    window.copyCode = function(btn) {
+        const pre = btn.closest('.message-body').querySelector('pre');
+        const text = pre ? pre.textContent : '';
+        navigator.clipboard.writeText(text).then(() => {
+            btn.innerHTML = '<i class="fas fa-check"></i> Скопировано!';
+            btn.classList.add('copied');
+            setTimeout(() => {
+                btn.innerHTML = '<i class="fas fa-copy"></i> Копировать';
+                btn.classList.remove('copied');
+            }, 2000);
+        }).catch(() => {
+            const range = document.createRange();
+            range.selectNode(pre);
+            window.getSelection().removeAllRanges();
+            window.getSelection().addRange(range);
+            document.execCommand('copy');
+            btn.innerHTML = '<i class="fas fa-check"></i> Скопировано!';
+            setTimeout(() => {
+                btn.innerHTML = '<i class="fas fa-copy"></i> Копировать';
+            }, 2000);
+        });
+    };
+
+    // ========================
+    // 4. Управление выбором модели
+    // ========================
+    const modelSelect = document.getElementById('modelSelect');
+    const customModelInput = document.getElementById('customModelInput');
+
+    if (modelSelect) {
+        modelSelect.addEventListener('change', function() {
+            customModelInput.style.display = this.value === 'custom' ? 'inline-block' : 'none';
+        });
+    }
+
+    // ========================
+    // 5. Деплой (модальное окно)
+    // ========================
+    function showDeployModal(historyId) {
+        document.getElementById('deployHistoryId').value = historyId || '';
+        document.getElementById('deployModal').style.display = 'flex';
+        // Загружаем сохранённую конфигурацию
+        const user_id = getUserId();
+        if (user_id) {
+            fetch(`/admin/ai-coder/deploy/config/${user_id}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data && !data.error) {
+                        document.getElementById('deployProvider').value = data.provider || 'github';
+                        if (data.provider === 'github') {
+                            document.getElementById('deployRepo').value = data.repo || '';
+                            document.getElementById('deployBranch').value = data.branch || 'main';
+                        } else {
+                            document.getElementById('deployHost').value = data.host || '';
+                            document.getElementById('deployUsername').value = data.username || '';
+                            document.getElementById('deployPath').value = data.path || '/';
+                        }
+                        toggleDeployFields();
+                    }
+                })
+                .catch(() => {});
+        }
+    }
+
+    function closeDeployModal() {
+        document.getElementById('deployModal').style.display = 'none';
+    }
+
+    function toggleDeployFields() {
+        const provider = document.getElementById('deployProvider').value;
+        document.getElementById('githubFields').style.display = provider === 'github' ? 'block' : 'none';
+        document.getElementById('ftpFields').style.display = provider === 'ftp' ? 'block' : 'none';
+    }
+
+    document.getElementById('deployProvider').addEventListener('change', toggleDeployFields);
+
+    document.getElementById('deployForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const formData = new FormData();
+        const user_id = getUserId();
+        formData.append('user_id', user_id);
+        formData.append('history_id', document.getElementById('deployHistoryId').value);
+
+        const provider = document.getElementById('deployProvider').value;
+        formData.append('provider', provider);
+        if (provider === 'github') {
+            formData.append('repo', document.getElementById('deployRepo').value);
+            formData.append('password', document.getElementById('deployToken').value);
+            formData.append('branch', document.getElementById('deployBranch').value);
+        } else {
+            formData.append('host', document.getElementById('deployHost').value);
+            formData.append('username', document.getElementById('deployUsername').value);
+            formData.append('password', document.getElementById('deployPassword').value);
+            formData.append('path', document.getElementById('deployPath').value);
+        }
+
+        // Сохраняем конфигурацию
+        await fetch('/admin/ai-coder/deploy/config', {
+            method: 'POST',
+            body: formData
+        });
+
+        // Выполняем деплой
+        const response = await fetch('/admin/ai-coder/deploy', {
+            method: 'POST',
+            body: formData
+        });
+        const result = await response.json();
+        closeDeployModal();
+        if (result.status === 'success') {
+            addMessage('system', '✅ ' + result.message);
+        } else {
+            addMessage('system', '❌ Ошибка деплоя: ' + (result.error || 'неизвестная ошибка'));
+        }
+    });
+
+    function getUserId() {
+        return document.getElementById('user_id_input').value || localStorage.getItem('kvg_ai_user_id') || '';
+    }
+
+    // ========================
+    // 6. AJAX-отправка
+    // ========================
+    const chatForm = document.getElementById('chatForm');
+    const chatWindow = document.getElementById('chatWindow');
+    const submitBtn = document.getElementById('submitBtn');
+    const formActions = document.getElementById('formActions');
+
+    function addMessage(role, content, historyId = null) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message message-${role}`;
+        const avatarIcon = role === 'user' ? 'user' : (role === 'assistant' ? 'robot' : 'info-circle');
+        const avatar = document.createElement('div');
+        avatar.className = 'message-avatar';
+        avatar.innerHTML = `<i class="fas fa-${avatarIcon}"></i>`;
+        messageDiv.appendChild(avatar);
+
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'message-content';
+        const label = document.createElement('div');
+        label.className = 'message-label';
+        label.textContent = role === 'user' ? 'Задача' : (role === 'assistant' ? 'Ответ AI‑Coder' : 'Система');
+        contentDiv.appendChild(label);
+
+        const body = document.createElement('div');
+        body.className = 'message-body';
+        if (role === 'assistant') {
+            const pre = document.createElement('pre');
+            const code = document.createElement('code');
+            code.className = 'language-plaintext';
+            code.textContent = content;
+            pre.appendChild(code);
+            body.appendChild(pre);
+
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'copy-btn';
+            copyBtn.innerHTML = '<i class="fas fa-copy"></i> Копировать';
+            copyBtn.onclick = function() { copyCode(this); };
+            pre.appendChild(copyBtn);
+
+            // Кнопка "Применить изменения"
+            const deployBtn = document.createElement('button');
+            deployBtn.className = 'btn btn-success deploy-btn';
+            deployBtn.innerHTML = '<i class="fas fa-upload"></i> Применить изменения';
+            deployBtn.onclick = function() {
+                showDeployModal(historyId);
+            };
+            body.appendChild(deployBtn);
+
+            setTimeout(() => {
+                if (window.hljs) hljs.highlightElement(code);
+            }, 50);
+        } else {
+            body.textContent = content;
+        }
+        contentDiv.appendChild(body);
+        messageDiv.appendChild(contentDiv);
+
+        const systemMsg = chatWindow.querySelector('.message-system');
+        if (systemMsg) systemMsg.remove();
+
+        chatWindow.appendChild(messageDiv);
+        chatWindow.scrollTop = chatWindow.scrollHeight;
+    }
+
+    function addTypingIndicator() {
+        const typingDiv = document.createElement('div');
+        typingDiv.className = 'message message-assistant typing-indicator';
+        typingDiv.id = 'typingIndicator';
+        const avatar = document.createElement('div');
+        avatar.className = 'message-avatar';
+        avatar.innerHTML = '<i class="fas fa-robot"></i>';
+        typingDiv.appendChild(avatar);
+
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'message-content';
+        const body = document.createElement('div');
+        body.className = 'message-body';
+        body.innerHTML = `
+            <div class="typing-dots">
+                <span></span><span></span><span></span>
+            </div>
+        `;
+        contentDiv.appendChild(body);
+        typingDiv.appendChild(contentDiv);
+        chatWindow.appendChild(typingDiv);
+        chatWindow.scrollTop = chatWindow.scrollHeight;
+    }
+
+    function removeTypingIndicator() {
+        const indicator = document.getElementById('typingIndicator');
+        if (indicator) indicator.remove();
+    }
+
+    chatForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+
+        const task = taskInput.value.trim();
+        if (!task && !fileInput.files.length) {
+            console.warn('⚠️ Нет задачи и файла – отправка отменена');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('task', task);
+        formData.append('user_id', getUserId());
+
+        if (fileInput.files.length > 0) {
+            const file = fileInput.files[0];
+            formData.append('file', file);
+            console.log('✅ Файл добавлен в FormData:', file.name, 'размер:', file.size, 'байт');
+        } else {
+            console.warn('⚠️ Файл НЕ выбран, отправляем только текст');
+        }
+
+        if (modelSelect) {
+            const selectedModel = modelSelect.value;
+            formData.append('model', selectedModel);
+            if (selectedModel === 'custom' && customModelInput) {
+                formData.append('custom_model', customModelInput.value);
+            }
+        }
+
+        addMessage('user', task || '📎 Файл прикреплён');
+        taskInput.value = '';
+        taskInput.style.height = 'auto';
+        clearFiles();
+
+        addTypingIndicator();
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<span class="spinner"></span>';
+
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 200000);
+
+            const response = await fetch('/admin/ai-coder/api', {
+                method: 'POST',
+                body: formData,
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+
+            const responseText = await response.text();
+            if (!response.ok) {
+                let errorText = responseText;
+                try {
+                    const errData = JSON.parse(responseText);
+                    errorText = errData.error || errData.message || `HTTP ${response.status}`;
+                } catch {
+                    // оставляем как есть
+                }
+                throw new Error(errorText);
+            }
+
+            let data;
+            try {
+                data = JSON.parse(responseText);
+            } catch {
+                throw new Error('Неверный формат ответа от сервера');
+            }
+
+            removeTypingIndicator();
+
+            if (data.error) {
+                addMessage('system', '❌ ' + data.error);
+            } else if (data.result) {
+                addMessage('assistant', data.result, data.history_id);
+                if (data.download_url) {
+                    let downloadLink = formActions.querySelector('.download-link');
+                    if (downloadLink) {
+                        downloadLink.href = data.download_url;
+                        downloadLink.style.display = 'inline-flex';
+                    } else {
+                        const newLink = document.createElement('a');
+                        newLink.className = 'btn btn-success download-link';
+                        newLink.href = data.download_url;
+                        newLink.innerHTML = '<i class="fas fa-download"></i> Скачать исправленный ZIP';
+                        formActions.appendChild(newLink);
+                    }
+                }
+            } else {
+                addMessage('system', '⚠️ Неизвестный ответ от сервера.');
+            }
+        } catch (error) {
+            removeTypingIndicator();
+            if (error.name === 'AbortError') {
+                addMessage('system', '⏱️ Превышено время ожидания ответа от сервера (200 сек).');
+            } else {
+                addMessage('system', '❌ Ошибка: ' + error.message);
+            }
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="fas fa-arrow-up"></i>';
+        }
+    });
+
+    // ========================
+    // 7. Сохраняем user_id
+    // ========================
+    (function() {
+        const uid = "{{ user_id }}";
+        if (uid && uid !== "None") {
+            localStorage.setItem("kvg_ai_user_id", uid);
+        }
+        const input = document.getElementById('user_id_input');
+        if (!input.value || input.value === 'None') {
+            const stored = localStorage.getItem('kvg_ai_user_id');
+            if (stored) input.value = stored;
+        }
+    })();
 </script>
+
+<style>
+    /* Стили для модального окна (можно перенести в ai_coder.css) */
+    .modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.7);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+    }
+    .modal-content {
+        background: var(--bg-elevated);
+        padding: 24px;
+        border-radius: var(--radius);
+        max-width: 500px;
+        width: 90%;
+        border: 1px solid var(--border-color);
+    }
+    .modal-close {
+        float: right;
+        font-size: 24px;
+        cursor: pointer;
+        color: var(--text-muted);
+    }
+    .modal-close:hover {
+        color: var(--text-primary);
+    }
+    .form-group {
+        margin-bottom: 12px;
+    }
+    .form-group label {
+        display: block;
+        font-size: 13px;
+        color: var(--text-secondary);
+        margin-bottom: 4px;
+    }
+    .form-group input, .form-group select {
+        width: 100%;
+        padding: 8px 12px;
+        background: var(--bg-input);
+        color: var(--text-primary);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius-sm);
+        font-size: 14px;
+    }
+    .form-group input:focus, .form-group select:focus {
+        outline: none;
+        border-color: var(--accent);
+    }
+    .deploy-btn {
+        margin-top: 8px;
+        padding: 6px 14px;
+        font-size: 13px;
+        background: var(--success);
+        color: #0b0d14;
+        border: none;
+        border-radius: 999px;
+        cursor: pointer;
+        transition: var(--transition);
+    }
+    .deploy-btn:hover {
+        filter: brightness(0.9);
+    }
+</style>
 {% endblock %}
