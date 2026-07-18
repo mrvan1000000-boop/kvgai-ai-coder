@@ -6,14 +6,14 @@ from ai_coder.router import router as ai_coder_router
 
 app = FastAPI()
 
-# Статика
+# Подключаем статику
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Подключаем роутер AI-Coder
 app.include_router(ai_coder_router)
 
 @app.get("/")
-async def read_root(request: Request):
+async def root():
     return RedirectResponse(url="/admin/ai-coder")
 
 if __name__ == "__main__":
