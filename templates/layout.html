@@ -18,10 +18,10 @@
             <div class="subtitle"><i class="fas fa-code"></i> AI‑Coder</div>
         </div>
         <nav class="sidebar-nav">
-            <a href="/admin/ai-coder?user_id={{ user_id or '' }}" class="nav-item {% if request.url.path == '/admin/ai-coder' %}active{% endif %}">
+            <a href="/admin/ai-coder?user_id={{ user_id }}" class="nav-item {% if request.url.path == '/admin/ai-coder' %}active{% endif %}">
                 <i class="fas fa-comment-dots"></i> Диалог
             </a>
-            <a href="/admin/ai-coder/history/{{ user_id or '' }}" class="nav-item {% if request.url.path.startswith('/admin/ai-coder/history') %}active{% endif %}">
+            <a href="/admin/ai-coder/history/{{ user_id }}" class="nav-item {% if request.url.path.startswith('/admin/ai-coder/history') %}active{% endif %}">
                 <i class="fas fa-clock-rotate-left"></i> История
             </a>
         </nav>
@@ -30,7 +30,7 @@
                 <div class="user-avatar">AI</div>
                 <div class="user-meta">
                     <div class="user-name">Пользователь</div>
-                    <div class="user-id">{{ user_id or 'unknown' }}</div>
+                    <div class="user-id">{{ user_id }}</div>
                 </div>
             </div>
         </div>
@@ -41,11 +41,18 @@
 </div>
 <script>
     (function() {
-        const uid = "{{ user_id or '' }}";
-        if (uid) localStorage.setItem("kvg_ai_user_id", uid);
+        const uid = "{{ user_id }}";
+        if (uid && uid !== "None") {
+            localStorage.setItem("kvg_ai_user_id", uid);
+        }
+        const input = document.getElementById('user_id_input');
+        if (input && (!input.value || input.value === 'None')) {
+            const stored = localStorage.getItem('kvg_ai_user_id');
+            if (stored) input.value = stored;
+        }
     })();
     document.addEventListener('DOMContentLoaded', () => {
-        document.querySelectorAll('pre code').forEach(b => hljs.highlightElement(b));
+        document.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
     });
 </script>
 </body>
