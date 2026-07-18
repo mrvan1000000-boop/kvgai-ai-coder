@@ -1,592 +1,230 @@
 {% extends "layout.html" %}
 {% block content %}
-<div class="chat-container">
-    <div class="chat-header">
-        <h1>AI‑Coder ассистент</h1>
-        <p>Оптимизация кода, поиск ошибок, рефакторинг проектов.</p>
-    </div>
 
-    <div class="chat-window" id="chatWindow">
-        {% if chat_history %}
-            {% for msg in chat_history %}
-                <div class="message message-{{ msg.role }}">
-                    <div class="message-avatar"><i class="fas fa-{% if msg.role == 'user' %}user{% else %}robot{% endif %}"></i></div>
-                    <div class="message-content">
-                        <div class="message-label">{{ 'Задача' if msg.role == 'user' else 'Ответ AI‑Coder' }}</div>
-                        <div class="message-body">{{ msg.content }}</div>
-                    </div>
-                </div>
-            {% endfor %}
-        {% endif %}
-
-        {% if result %}
-            <div class="message message-user">
-                <div class="message-avatar"><i class="fas fa-user"></i></div>
-                <div class="message-content">
-                    <div class="message-label">Задача</div>
-                    <div class="message-body">{{ task }}</div>
+<div class="flex h-screen w-full">
+    <!-- Sidebar -->
+    <div class="w-80 bg-zinc-900 border-r border-zinc-800 flex flex-col">
+        <div class="p-4 border-b border-zinc-800">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 bg-blue-600 rounded-xl flex items-center justify-center text-white font-bold">K</div>
+                <div>
+                    <h1 class="text-xl font-semibold">AI Coder</h1>
+                    <p class="text-xs text-zinc-500">by KVG AI Studio</p>
                 </div>
             </div>
-            <div class="message message-assistant" id="assistantMessage">
-                <div class="message-avatar"><i class="fas fa-robot"></i></div>
-                <div class="message-content">
-                    <div class="message-label">Ответ AI‑Coder</div>
-                    <div class="message-body">
-                        <pre><code class="language-plaintext">{{ result }}</code></pre>
-                        <button class="copy-btn" onclick="copyCode(this)"><i class="fas fa-copy"></i> Копировать</button>
-                        <button class="btn btn-success deploy-btn" onclick="showDeployModal('{{ history_id }}')">
-                            <i class="fas fa-upload"></i> Применить изменения
+        </div>
+
+        <!-- New Chat -->
+        <div class="p-4">
+            <button onclick="newChat()" 
+                    class="w-full bg-blue-600 hover:bg-blue-700 py-3 px-4 rounded-2xl flex items-center justify-center gap-2 font-medium">
+                <span>+</span> Новый чат
+            </button>
+        </div>
+
+        <!-- History -->
+        <div class="flex-1 overflow-auto px-3" id="history-list">
+            <!-- Filled by JS -->
+        </div>
+
+        <!-- Deploy Settings -->
+        <div class="p-4 border-t border-zinc-800 bg-zinc-950">
+            <h3 class="text-sm font-medium mb-3 flex items-center gap-2">
+                <span>⚙️</span> Настройки деплоя
+            </h3>
+            <form id="deploy-form" class="space-y-3 text-sm">
+                <select id="provider" class="w-full bg-zinc-800 border border-zinc-700 rounded-xl p-3">
+                    <option value="github">GitHub</option>
+                    <option value="ftp">FTP / Хостинг</option>
+                </select>
+                
+                <div id="github-fields">
+                    <input type="text" id="repo" placeholder="owner/repo" class="w-full bg-zinc-800 border border-zinc-700 rounded-xl p-3">
+                    <input type="password" id="token" placeholder="GitHub Token" class="w-full bg-zinc-800 border border-zinc-700 rounded-xl p-3 mt-2">
+                </div>
+                
+                <div id="ftp-fields" class="hidden">
+                    <input type="text" id="host" placeholder="Host" class="w-full bg-zinc-800 border border-zinc-700 rounded-xl p-3">
+                    <input type="text" id="username" placeholder="Username" class="w-full bg-zinc-800 border border-zinc-700 rounded-xl p-3 mt-2">
+                    <input type="password" id="password" placeholder="Password" class="w-full bg-zinc-800 border border-zinc-700 rounded-xl p-3 mt-2">
+                </div>
+                
+                <button type="button" onclick="saveDeployConfig()" 
+                        class="w-full bg-emerald-600 hover:bg-emerald-700 py-3 rounded-2xl font-medium">
+                    Сохранить настройки
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Main Chat Area -->
+    <div class="flex-1 flex flex-col">
+        <!-- Header -->
+        <div class="h-14 border-b border-zinc-800 flex items-center px-6 justify-between bg-zinc-900">
+            <div class="flex items-center gap-3">
+                <span class="text-lg">💬</span>
+                <h2 class="font-medium" id="chat-title">Новый чат</h2>
+            </div>
+            <div class="flex items-center gap-4 text-sm">
+                <select id="model-select" class="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-1.5">
+                    {% for m in available_models %}
+                    <option value="{{ m }}">{{ m }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <!-- Messages -->
+        <div id="chat-window" class="flex-1 overflow-auto p-6 space-y-8 chat-window bg-zinc-950">
+            {% if chat_history %}
+                {% for msg in chat_history %}
+                <div class="message flex {{ 'justify-end' if msg.role == 'user' else '' }}">
+                    <div class="max-w-3xl">
+                        <div class="text-xs text-zinc-500 mb-1 px-2">
+                            {{ 'Вы' if msg.role == 'user' else 'AI Coder' }}
+                        </div>
+                        <div class="message-content {{ 'bg-blue-600 text-white' if msg.role == 'user' else 'bg-zinc-800' }} rounded-3xl px-6 py-4">
+                            {{ msg.content|safe }}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="h-full flex items-center justify-center text-center">
+                    <div>
+                        <div class="text-6xl mb-4">🤖</div>
+                        <h3 class="text-2xl font-medium">Привет! Я AI Coder</h3>
+                        <p class="text-zinc-400 mt-2 max-w-md">Загрузите файл или ZIP проекта и опишите задачу.<br>Я помогу исправить, оптимизировать и задеплоить код.</p>
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+
+        <!-- Input Area -->
+        <div class="p-6 border-t border-zinc-800 bg-zinc-900">
+            <form id="chat-form" class="max-w-4xl mx-auto">
+                <div class="relative">
+                    <textarea id="user-input" rows="2"
+                        class="w-full bg-zinc-800 border border-zinc-700 rounded-3xl px-6 py-5 pr-24 resize-none focus:outline-none focus:border-blue-500"
+                        placeholder="Опишите задачу... (например: исправь ошибки в main.py)"></textarea>
+                    
+                    <div class="absolute bottom-4 right-4 flex gap-2">
+                        <label class="cursor-pointer text-zinc-400 hover:text-white p-2">
+                            <input type="file" id="file-upload" class="hidden" multiple>
+                            📎
+                        </label>
+                        <button type="submit"
+                            class="bg-blue-600 hover:bg-blue-700 w-10 h-10 rounded-2xl flex items-center justify-center">
+                            ↑
                         </button>
                     </div>
                 </div>
-            </div>
-        {% elif not chat_history %}
-            <div class="message message-system">
-                <div class="message-avatar"><i class="fas fa-info-circle"></i></div>
-                <div class="message-content">
-                    <div class="message-body">
-                        <i class="fas fa-upload" style="margin-right: 8px;"></i>
-                        Начни с описания задачи, прикрепи файл или ZIP проекта — AI‑Coder проанализирует и вернёт исправленный код.
-                    </div>
-                </div>
-            </div>
-        {% endif %}
-    </div>
-
-    <form class="chat-form" id="chatForm" enctype="multipart/form-data">
-        <input type="hidden" name="user_id" id="user_id_input" value="{{ user_id }}">
-
-        <div class="input-area">
-            <textarea name="task" rows="1" placeholder="Опиши задачу или прикрепи файл..." id="taskInput"></textarea>
-            <div class="input-actions">
-                <label class="file-attach-btn" id="fileAttachBtn">
-                    <i class="fas fa-paperclip"></i>
-                    <input type="file" name="file" id="fileInput" style="display: none;">
-                </label>
-                <button type="submit" class="btn-send" id="submitBtn">
-                    <i class="fas fa-arrow-up"></i>
-                </button>
-            </div>
+            </form>
+            <p class="text-center text-[10px] text-zinc-500 mt-3">AI может ошибаться. Проверяйте код перед применением.</p>
         </div>
-        <div class="file-preview" id="filePreview" style="display: none;">
-            <span id="fileNames"></span>
-            <button type="button" class="btn-remove-file" onclick="clearFiles()"><i class="fas fa-times"></i></button>
-        </div>
-
-        <div class="model-selector">
-            <label for="modelSelect"><i class="fas fa-microchip"></i> Модель:</label>
-            <select id="modelSelect" name="model">
-                {% for m in available_models %}
-                    <option value="{{ m }}" {% if m == selected_model %}selected{% endif %}>{{ m }}</option>
-                {% endfor %}
-                <option value="custom" {% if selected_model not in available_models %}selected{% endif %}>Своя модель</option>
-            </select>
-            <input type="text" id="customModelInput" name="custom_model" placeholder="Введите название модели" value="{{ custom_model if custom_model else '' }}" style="display: {% if selected_model not in available_models %}inline-block{% else %}none{% endif %};">
-        </div>
-
-        <div class="form-actions" id="formActions">
-            {% if download %}
-                <a href="{{ download }}" class="btn btn-success download-link"><i class="fas fa-download"></i> Скачать исправленный ZIP</a>
-            {% endif %}
-        </div>
-    </form>
-</div>
-
-<!-- ===== МОДАЛЬНОЕ ОКНО ДЕПЛОЯ ===== -->
-<div id="deployModal" class="modal" style="display: none;">
-    <div class="modal-content">
-        <span class="modal-close" onclick="closeDeployModal()">&times;</span>
-        <h3>Применить изменения</h3>
-        <form id="deployForm">
-            <input type="hidden" id="deployHistoryId">
-            <div class="form-group">
-                <label>Провайдер:</label>
-                <select id="deployProvider">
-                    <option value="github">GitHub</option>
-                    <option value="ftp">FTP</option>
-                </select>
-            </div>
-            <div id="githubFields">
-                <div class="form-group">
-                    <label>Репозиторий (owner/repo):</label>
-                    <input type="text" id="deployRepo" placeholder="username/repo">
-                </div>
-                <div class="form-group">
-                    <label>Токен GitHub:</label>
-                    <input type="password" id="deployToken" placeholder="Ваш GitHub токен">
-                </div>
-                <div class="form-group">
-                    <label>Ветка:</label>
-                    <input type="text" id="deployBranch" value="main">
-                </div>
-            </div>
-            <div id="ftpFields" style="display: none;">
-                <div class="form-group">
-                    <label>Хост:</label>
-                    <input type="text" id="deployHost" placeholder="ftp.example.com">
-                </div>
-                <div class="form-group">
-                    <label>Имя пользователя:</label>
-                    <input type="text" id="deployUsername" placeholder="username">
-                </div>
-                <div class="form-group">
-                    <label>Пароль:</label>
-                    <input type="password" id="deployPassword" placeholder="password">
-                </div>
-                <div class="form-group">
-                    <label>Путь (оставьте / для корня):</label>
-                    <input type="text" id="deployPath" value="/">
-                </div>
-            </div>
-            <button type="submit" class="btn btn-primary">Применить</button>
-            <button type="button" class="btn btn-secondary" onclick="closeDeployModal()">Отмена</button>
-        </form>
     </div>
 </div>
 
 <script>
-    // ========================
-    // 1. Работа с файлами
-    // ========================
-    const fileInput = document.getElementById('fileInput');
-    const filePreview = document.getElementById('filePreview');
-    const fileNames = document.getElementById('fileNames');
+// Basic JS functionality
+let currentUserId = "{{ user_id }}";
+let currentHistoryId = null;
 
-    fileInput.addEventListener('change', function() {
-        if (this.files.length > 0) {
-            fileNames.textContent = this.files[0].name;
-            filePreview.style.display = 'flex';
-            console.log('📎 Файл выбран:', this.files[0].name);
-        } else {
-            filePreview.style.display = 'none';
-        }
+document.getElementById('chat-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const input = document.getElementById('user-input');
+    const task = input.value.trim();
+    if (!task) return;
+
+    // Add user message
+    appendMessage('user', task);
+    input.value = '';
+
+    // Call backend
+    const formData = new FormData();
+    formData.append('task', task);
+    formData.append('user_id', currentUserId);
+    formData.append('model', document.getElementById('model-select').value);
+
+    const fileInput = document.getElementById('file-upload');
+    if (fileInput.files.length > 0) {
+        formData.append('file', fileInput.files[0]);
+    }
+
+    const res = await fetch('/admin/ai-coder/api', {
+        method: 'POST',
+        body: formData
     });
 
-    function clearFiles() {
-        fileInput.value = '';
-        filePreview.style.display = 'none';
-        console.log('🗑️ Файлы очищены');
+    const data = await res.json();
+    
+    if (data.result) {
+        appendMessage('assistant', data.result, data);
+        currentHistoryId = data.history_id;
     }
+});
 
-    // ========================
-    // 2. Авто-высота textarea
-    // ========================
-    const taskInput = document.getElementById('taskInput');
-    taskInput.addEventListener('input', function() {
-        this.style.height = 'auto';
-        this.style.height = this.scrollHeight + 'px';
+function appendMessage(role, content, extra = {}) {
+    const window = document.getElementById('chat-window');
+    const div = document.createElement('div');
+    div.className = `flex ${role === 'user' ? 'justify-end' : ''}`;
+    
+    let html = `
+        <div class="max-w-3xl">
+            <div class="text-xs text-zinc-500 mb-1 px-2">${role === 'user' ? 'Вы' : 'AI Coder'}</div>
+            <div class="message-content ${role === 'user' ? 'bg-blue-600 text-white' : 'bg-zinc-800'} rounded-3xl px-6 py-4">
+                ${marked.parse(content)}
+            </div>`;
+    
+    if (role === 'assistant' && extra.fixed_files) {
+        html += `
+            <div class="flex gap-3 mt-4">
+                <button onclick="downloadZip('${extra.download_url}')" 
+                        class="text-sm bg-zinc-700 hover:bg-zinc-600 px-5 py-2 rounded-2xl">Скачать ZIP</button>
+                <button onclick="applyChanges('${extra.history_id}', 'github')" 
+                        class="text-sm bg-emerald-600 hover:bg-emerald-700 px-5 py-2 rounded-2xl">🚀 Применить на GitHub</button>
+                <button onclick="applyChanges('${extra.history_id}', 'ftp')" 
+                        class="text-sm bg-amber-600 hover:bg-amber-700 px-5 py-2 rounded-2xl">☁️ Деплоить на FTP</button>
+            </div>`;
+    }
+    
+    html += `</div>`;
+    div.innerHTML = html;
+    window.appendChild(div);
+    window.scrollTop = window.scrollHeight;
+    hljs.highlightAll();
+}
+
+function downloadZip(url) {
+    window.location.href = url;
+}
+
+async function applyChanges(historyId, provider) {
+    if (!confirm(`Применить изменения на ${provider.toUpperCase()}?`)) return;
+    
+    const res = await fetch('/admin/ai-coder/deploy', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: new URLSearchParams({
+            user_id: currentUserId,
+            history_id: historyId,
+            provider: provider
+        })
     });
-    taskInput.style.height = 'auto';
-    taskInput.style.height = taskInput.scrollHeight + 'px';
+    
+    const data = await res.json();
+    alert(data.message || data.error || 'Готово!');
+}
 
-    taskInput.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-            document.getElementById('chatForm').dispatchEvent(new Event('submit'));
-        }
-    });
+function newChat() {
+    window.location.reload();
+}
 
-    // ========================
-    // 3. Копирование кода
-    // ========================
-    window.copyCode = function(btn) {
-        const pre = btn.closest('.message-body').querySelector('pre');
-        const text = pre ? pre.textContent : '';
-        navigator.clipboard.writeText(text).then(() => {
-            btn.innerHTML = '<i class="fas fa-check"></i> Скопировано!';
-            btn.classList.add('copied');
-            setTimeout(() => {
-                btn.innerHTML = '<i class="fas fa-copy"></i> Копировать';
-                btn.classList.remove('copied');
-            }, 2000);
-        }).catch(() => {
-            const range = document.createRange();
-            range.selectNode(pre);
-            window.getSelection().removeAllRanges();
-            window.getSelection().addRange(range);
-            document.execCommand('copy');
-            btn.innerHTML = '<i class="fas fa-check"></i> Скопировано!';
-            setTimeout(() => {
-                btn.innerHTML = '<i class="fas fa-copy"></i> Копировать';
-            }, 2000);
-        });
-    };
-
-    // ========================
-    // 4. Управление выбором модели
-    // ========================
-    const modelSelect = document.getElementById('modelSelect');
-    const customModelInput = document.getElementById('customModelInput');
-
-    if (modelSelect) {
-        modelSelect.addEventListener('change', function() {
-            customModelInput.style.display = this.value === 'custom' ? 'inline-block' : 'none';
-        });
-    }
-
-    // ========================
-    // 5. Деплой (модальное окно)
-    // ========================
-    function showDeployModal(historyId) {
-        document.getElementById('deployHistoryId').value = historyId || '';
-        document.getElementById('deployModal').style.display = 'flex';
-        // Загружаем сохранённую конфигурацию
-        const user_id = getUserId();
-        if (user_id) {
-            fetch(`/admin/ai-coder/deploy/config/${user_id}`)
-                .then(res => res.json())
-                .then(data => {
-                    if (data && !data.error) {
-                        document.getElementById('deployProvider').value = data.provider || 'github';
-                        if (data.provider === 'github') {
-                            document.getElementById('deployRepo').value = data.repo || '';
-                            document.getElementById('deployBranch').value = data.branch || 'main';
-                        } else {
-                            document.getElementById('deployHost').value = data.host || '';
-                            document.getElementById('deployUsername').value = data.username || '';
-                            document.getElementById('deployPath').value = data.path || '/';
-                        }
-                        toggleDeployFields();
-                    }
-                })
-                .catch(() => {});
-        }
-    }
-
-    function closeDeployModal() {
-        document.getElementById('deployModal').style.display = 'none';
-    }
-
-    function toggleDeployFields() {
-        const provider = document.getElementById('deployProvider').value;
-        document.getElementById('githubFields').style.display = provider === 'github' ? 'block' : 'none';
-        document.getElementById('ftpFields').style.display = provider === 'ftp' ? 'block' : 'none';
-    }
-
-    document.getElementById('deployProvider').addEventListener('change', toggleDeployFields);
-
-    document.getElementById('deployForm').addEventListener('submit', async function(e) {
-        e.preventDefault();
-        const formData = new FormData();
-        const user_id = getUserId();
-        formData.append('user_id', user_id);
-        formData.append('history_id', document.getElementById('deployHistoryId').value);
-
-        const provider = document.getElementById('deployProvider').value;
-        formData.append('provider', provider);
-        if (provider === 'github') {
-            formData.append('repo', document.getElementById('deployRepo').value);
-            formData.append('password', document.getElementById('deployToken').value);
-            formData.append('branch', document.getElementById('deployBranch').value);
-        } else {
-            formData.append('host', document.getElementById('deployHost').value);
-            formData.append('username', document.getElementById('deployUsername').value);
-            formData.append('password', document.getElementById('deployPassword').value);
-            formData.append('path', document.getElementById('deployPath').value);
-        }
-
-        // Сохраняем конфигурацию
-        await fetch('/admin/ai-coder/deploy/config', {
-            method: 'POST',
-            body: formData
-        });
-
-        // Выполняем деплой
-        const response = await fetch('/admin/ai-coder/deploy', {
-            method: 'POST',
-            body: formData
-        });
-        const result = await response.json();
-        closeDeployModal();
-        if (result.status === 'success') {
-            addMessage('system', '✅ ' + result.message);
-        } else {
-            addMessage('system', '❌ Ошибка деплоя: ' + (result.error || 'неизвестная ошибка'));
-        }
-    });
-
-    function getUserId() {
-        return document.getElementById('user_id_input').value || localStorage.getItem('kvg_ai_user_id') || '';
-    }
-
-    // ========================
-    // 6. AJAX-отправка
-    // ========================
-    const chatForm = document.getElementById('chatForm');
-    const chatWindow = document.getElementById('chatWindow');
-    const submitBtn = document.getElementById('submitBtn');
-    const formActions = document.getElementById('formActions');
-
-    function addMessage(role, content, historyId = null) {
-        const messageDiv = document.createElement('div');
-        messageDiv.className = `message message-${role}`;
-        const avatarIcon = role === 'user' ? 'user' : (role === 'assistant' ? 'robot' : 'info-circle');
-        const avatar = document.createElement('div');
-        avatar.className = 'message-avatar';
-        avatar.innerHTML = `<i class="fas fa-${avatarIcon}"></i>`;
-        messageDiv.appendChild(avatar);
-
-        const contentDiv = document.createElement('div');
-        contentDiv.className = 'message-content';
-        const label = document.createElement('div');
-        label.className = 'message-label';
-        label.textContent = role === 'user' ? 'Задача' : (role === 'assistant' ? 'Ответ AI‑Coder' : 'Система');
-        contentDiv.appendChild(label);
-
-        const body = document.createElement('div');
-        body.className = 'message-body';
-        if (role === 'assistant') {
-            const pre = document.createElement('pre');
-            const code = document.createElement('code');
-            code.className = 'language-plaintext';
-            code.textContent = content;
-            pre.appendChild(code);
-            body.appendChild(pre);
-
-            const copyBtn = document.createElement('button');
-            copyBtn.className = 'copy-btn';
-            copyBtn.innerHTML = '<i class="fas fa-copy"></i> Копировать';
-            copyBtn.onclick = function() { copyCode(this); };
-            pre.appendChild(copyBtn);
-
-            // Кнопка "Применить изменения"
-            const deployBtn = document.createElement('button');
-            deployBtn.className = 'btn btn-success deploy-btn';
-            deployBtn.innerHTML = '<i class="fas fa-upload"></i> Применить изменения';
-            deployBtn.onclick = function() {
-                showDeployModal(historyId);
-            };
-            body.appendChild(deployBtn);
-
-            setTimeout(() => {
-                if (window.hljs) hljs.highlightElement(code);
-            }, 50);
-        } else {
-            body.textContent = content;
-        }
-        contentDiv.appendChild(body);
-        messageDiv.appendChild(contentDiv);
-
-        const systemMsg = chatWindow.querySelector('.message-system');
-        if (systemMsg) systemMsg.remove();
-
-        chatWindow.appendChild(messageDiv);
-        chatWindow.scrollTop = chatWindow.scrollHeight;
-    }
-
-    function addTypingIndicator() {
-        const typingDiv = document.createElement('div');
-        typingDiv.className = 'message message-assistant typing-indicator';
-        typingDiv.id = 'typingIndicator';
-        const avatar = document.createElement('div');
-        avatar.className = 'message-avatar';
-        avatar.innerHTML = '<i class="fas fa-robot"></i>';
-        typingDiv.appendChild(avatar);
-
-        const contentDiv = document.createElement('div');
-        contentDiv.className = 'message-content';
-        const body = document.createElement('div');
-        body.className = 'message-body';
-        body.innerHTML = `
-            <div class="typing-dots">
-                <span></span><span></span><span></span>
-            </div>
-        `;
-        contentDiv.appendChild(body);
-        typingDiv.appendChild(contentDiv);
-        chatWindow.appendChild(typingDiv);
-        chatWindow.scrollTop = chatWindow.scrollHeight;
-    }
-
-    function removeTypingIndicator() {
-        const indicator = document.getElementById('typingIndicator');
-        if (indicator) indicator.remove();
-    }
-
-    chatForm.addEventListener('submit', async function(e) {
-        e.preventDefault();
-
-        const task = taskInput.value.trim();
-        if (!task && !fileInput.files.length) {
-            console.warn('⚠️ Нет задачи и файла – отправка отменена');
-            return;
-        }
-
-        const formData = new FormData();
-        formData.append('task', task);
-        formData.append('user_id', getUserId());
-
-        if (fileInput.files.length > 0) {
-            const file = fileInput.files[0];
-            formData.append('file', file);
-            console.log('✅ Файл добавлен в FormData:', file.name, 'размер:', file.size, 'байт');
-        } else {
-            console.warn('⚠️ Файл НЕ выбран, отправляем только текст');
-        }
-
-        if (modelSelect) {
-            const selectedModel = modelSelect.value;
-            formData.append('model', selectedModel);
-            if (selectedModel === 'custom' && customModelInput) {
-                formData.append('custom_model', customModelInput.value);
-            }
-        }
-
-        addMessage('user', task || '📎 Файл прикреплён');
-        taskInput.value = '';
-        taskInput.style.height = 'auto';
-        clearFiles();
-
-        addTypingIndicator();
-        submitBtn.disabled = true;
-        submitBtn.innerHTML = '<span class="spinner"></span>';
-
-        try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 200000);
-
-            const response = await fetch('/admin/ai-coder/api', {
-                method: 'POST',
-                body: formData,
-                signal: controller.signal
-            });
-            clearTimeout(timeoutId);
-
-            const responseText = await response.text();
-            if (!response.ok) {
-                let errorText = responseText;
-                try {
-                    const errData = JSON.parse(responseText);
-                    errorText = errData.error || errData.message || `HTTP ${response.status}`;
-                } catch {
-                    // оставляем как есть
-                }
-                throw new Error(errorText);
-            }
-
-            let data;
-            try {
-                data = JSON.parse(responseText);
-            } catch {
-                throw new Error('Неверный формат ответа от сервера');
-            }
-
-            removeTypingIndicator();
-
-            if (data.error) {
-                addMessage('system', '❌ ' + data.error);
-            } else if (data.result) {
-                addMessage('assistant', data.result, data.history_id);
-                if (data.download_url) {
-                    let downloadLink = formActions.querySelector('.download-link');
-                    if (downloadLink) {
-                        downloadLink.href = data.download_url;
-                        downloadLink.style.display = 'inline-flex';
-                    } else {
-                        const newLink = document.createElement('a');
-                        newLink.className = 'btn btn-success download-link';
-                        newLink.href = data.download_url;
-                        newLink.innerHTML = '<i class="fas fa-download"></i> Скачать исправленный ZIP';
-                        formActions.appendChild(newLink);
-                    }
-                }
-            } else {
-                addMessage('system', '⚠️ Неизвестный ответ от сервера.');
-            }
-        } catch (error) {
-            removeTypingIndicator();
-            if (error.name === 'AbortError') {
-                addMessage('system', '⏱️ Превышено время ожидания ответа от сервера (200 сек).');
-            } else {
-                addMessage('system', '❌ Ошибка: ' + error.message);
-            }
-        } finally {
-            submitBtn.disabled = false;
-            submitBtn.innerHTML = '<i class="fas fa-arrow-up"></i>';
-        }
-    });
-
-    // ========================
-    // 7. Сохраняем user_id
-    // ========================
-    (function() {
-        const uid = "{{ user_id }}";
-        if (uid && uid !== "None") {
-            localStorage.setItem("kvg_ai_user_id", uid);
-        }
-        const input = document.getElementById('user_id_input');
-        if (!input.value || input.value === 'None') {
-            const stored = localStorage.getItem('kvg_ai_user_id');
-            if (stored) input.value = stored;
-        }
-    })();
+// Toggle FTP/GitHub fields
+document.getElementById('provider').addEventListener('change', (e) => {
+    document.getElementById('github-fields').classList.toggle('hidden', e.target.value !== 'github');
+    document.getElementById('ftp-fields').classList.toggle('hidden', e.target.value !== 'ftp');
+});
 </script>
 
-<style>
-    /* Стили для модального окна (можно перенести в ai_coder.css) */
-    .modal {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0,0,0,0.7);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 1000;
-    }
-    .modal-content {
-        background: var(--bg-elevated);
-        padding: 24px;
-        border-radius: var(--radius);
-        max-width: 500px;
-        width: 90%;
-        border: 1px solid var(--border-color);
-    }
-    .modal-close {
-        float: right;
-        font-size: 24px;
-        cursor: pointer;
-        color: var(--text-muted);
-    }
-    .modal-close:hover {
-        color: var(--text-primary);
-    }
-    .form-group {
-        margin-bottom: 12px;
-    }
-    .form-group label {
-        display: block;
-        font-size: 13px;
-        color: var(--text-secondary);
-        margin-bottom: 4px;
-    }
-    .form-group input, .form-group select {
-        width: 100%;
-        padding: 8px 12px;
-        background: var(--bg-input);
-        color: var(--text-primary);
-        border: 1px solid var(--border-color);
-        border-radius: var(--radius-sm);
-        font-size: 14px;
-    }
-    .form-group input:focus, .form-group select:focus {
-        outline: none;
-        border-color: var(--accent);
-    }
-    .deploy-btn {
-        margin-top: 8px;
-        padding: 6px 14px;
-        font-size: 13px;
-        background: var(--success);
-        color: #0b0d14;
-        border: none;
-        border-radius: 999px;
-        cursor: pointer;
-        transition: var(--transition);
-    }
-    .deploy-btn:hover {
-        filter: brightness(0.9);
-    }
-</style>
 {% endblock %}
