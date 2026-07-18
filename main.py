@@ -1,16 +1,16 @@
 import os
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
 from ai_coder.router import router as ai_coder_router
 
-app = FastAPI()
+app = FastAPI(title="KVG AI Coder")
 
-# Подключаем статику
+# Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# Подключаем роутер AI-Coder
-app.include_router(ai_coder_router)
+# Include router
+app.include_router(ai_coder_router, prefix="")
 
 @app.get("/")
 async def root():
