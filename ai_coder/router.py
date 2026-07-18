@@ -245,26 +245,39 @@ def save_message(user_id, role, content):
 
 def load_messages(user_id, limit=10):
     if not supabase: return []
-    data = supabase.table("ai_coder_messages") \
-        .select("*") \
-        .eq("user_id", user_id) \
-        .order("created_at", desc=False) \
-        .limit(limit) \
-        .execute()
-    return [{"role": i["role"], "content": i["content"]} for i in data.data]
+    try:
+        data = supabase.table("ai_coder_messages") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .order("created_at", desc=False) \
+            .limit(limit) \
+            .execute()
+        return [{"role": i["role"], "content": i["content"]} for i in data.data]
+    except Exception as e:
+        logger.error(f"Error loading messages: {e}")
+        return []
 
 # ===== РОУТЫ =====
 @router.get("/admin/ai-coder")
 async def ai_coder_page(request: Request, user_id: str | None = None):
     uid = user_id or str(uuid.uuid4())
-    history = load_messages(uid, limit=10)
-    chat_history = []
-    for msg in history:
-        role = msg["role"]
-        content = msg["content"]
-        if role == "user" and "Task:" in content:
-            content = content.split("Task:", 1)[1].split("\n\nSingle file")[0].strip()
-        chat_history.append({"role": role, "content": content})
+    
+    # Загружаем историю с защитой от ошибок
+    try:
+        history = load_messages(uid, limit=10)
+        chat_history = []
+        for msg in history:
+            role = msg.get("role", "unknown")
+            content = msg.get("content", "")
+            if role == "user" and "Task:" in content:
+                parts = content.split("Task:", 1)
+                if len(parts) > 1:
+                    content = parts[1].split("\n\nSingle file")[0].strip()
+            chat_history.append({"role": role, "content": content})
+    except Exception as e:
+        logger.error(f"Error processing history: {e}")
+        chat_history = []
+
     return templates.TemplateResponse("ai_coder.html", {
         "request": request,
         "user_id": uid,
@@ -273,7 +286,9 @@ async def ai_coder_page(request: Request, user_id: str | None = None):
         "chat_history": chat_history,
         "result": None,
         "task": "",
-        "download": None
+        "download": None,
+        "custom_model": "",               # <-- добавляем
+        "history_id": None                # <-- добавляем
     })
 
 @router.post("/admin/ai-coder/api")
@@ -282,7 +297,7 @@ async def ai_coder_api(
     task: str = Form(...),
     file: UploadFile = File(None),
     model: str = Form(None),
-    custom_model: str = Form(None),  # <-- добавлено
+    custom_model: str = Form(None),       # <-- добавляем
     user_id: str = Form(None)
 ):
     try:
@@ -296,7 +311,6 @@ async def ai_coder_api(
         else:
             selected_model = AVAILABLE_MODELS[0]
 
-        # Остальной код без изменений...
         context_content = ""
         file_names = []
         zip_contents = {}
