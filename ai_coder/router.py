@@ -5,31 +5,52 @@ import uuid
 import logging
 import zipfile
 import requests
+import ftplib
+import base64
 from fastapi import APIRouter, Request, UploadFile, File, Form
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 from supabase import create_client, Client
+from cryptography.fernet import Fernet
+from github import Github
 
+# ===== LOGGING =====
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Config
+# ===== ENV & CONFIG =====
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
 
+# Supabase
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) if (SUPABASE_URL and SUPABASE_KEY) else None
 
+# Groq
 try:
     from groq import Groq
     groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 except:
     groq_client = None
 
+# Шифрование
+cipher = Fernet(ENCRYPTION_KEY) if ENCRYPTION_KEY else None
+
+def encrypt_password(pwd: str) -> str:
+    if not cipher: return pwd
+    return cipher.encrypt(pwd.encode()).decode()
+
+def decrypt_password(encrypted: str) -> str:
+    if not cipher: return encrypted
+    return cipher.decrypt(encrypted.encode()).decode()
+
+# ===== ROUTER =====
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 
+# ===== МОДЕЛИ =====
 AVAILABLE_MODELS = [
     "openrouter:google/gemma-4-26b-a4b-it:free",
     "openrouter:tencent/hy3:free",
@@ -44,60 +65,7 @@ AVAILABLE_MODELS = [
     "groq:gemma2-9b-it",
 ]
 
-# ---------------------------
-#  UTILITY FUNCTIONS
-# ---------------------------
-def parse_files_from_ai(content: str) -> dict:
-    files = {}
-    current_path = None
-    buffer = []
-    for line in content.splitlines():
-        if line.startswith("--- ") and line.endswith(" ---"):
-            if current_path:
-                files[current_path] = "\n".join(buffer)
-            current_path = line[4:-4].strip()
-            buffer = []
-        elif current_path:
-            buffer.append(line)
-    if current_path:
-        files[current_path] = "\n".join(buffer)
-    return files
-
-def extract_zip_and_read(zip_file: UploadFile):
-    temp_dir = tempfile.mkdtemp()
-    zip_path = os.path.join(temp_dir, "uploaded.zip")
-    with open(zip_path, "wb") as f:
-        shutil.copyfileobj(zip_file.file, f)
-    files_data = {}
-    try:
-        with zipfile.ZipFile(zip_path) as z:
-            z.extractall(temp_dir)
-    except zipfile.BadZipFile:
-        return {"error": "not_a_zip"}
-    for root, _, files in os.walk(temp_dir):
-        for fn in files:
-            if fn == "uploaded.zip": continue
-            p = os.path.join(root, fn)
-            rel = os.path.relpath(p, temp_dir)
-            try:
-                with open(p, encoding="utf-8") as f:
-                    files_data[rel] = f.read()
-            except UnicodeDecodeError:
-                continue
-    return files_data
-
-def create_fixed_zip(fixed_files: dict):
-    d = tempfile.mkdtemp()
-    zp = os.path.join(d, "fixed_project.zip")
-    with zipfile.ZipFile(zp, "w") as zf:
-        for path, content in fixed_files.items():
-            full = os.path.join(d, path)
-            os.makedirs(os.path.dirname(full), exist_ok=True)
-            with open(full, "w", encoding="utf-8") as f:
-                f.write(content)
-            zf.write(full, arcname=path)
-    return zp
-
+# ===== AI ВЫЗОВЫ =====
 def call_openrouter(model: str, messages: list, timeout: int = 15):
     resp = requests.post(
         "https://openrouter.ai/api/v1/chat/completions",
@@ -126,20 +94,6 @@ def call_groq(model: str, messages: list, timeout: int = 15):
         timeout=timeout
     )
     return completion.choices[0].message.content if completion.choices else None
-
-def call_ai(messages: list, model: str, timeout: int = 15):
-    try:
-        if model.startswith("openrouter:"):
-            model_name = model.split(":", 1)[1]
-            return call_openrouter(model_name, messages, timeout)
-        elif model.startswith("groq:"):
-            model_name = model.split(":", 1)[1]
-            return call_groq(model_name, messages, timeout)
-        else:
-            return None
-    except Exception as e:
-        logger.error(f"AI call failed: {e}")
-        return None
 
 def call_model_with_fallback(messages, primary_model):
     base = [primary_model] + AVAILABLE_MODELS
@@ -175,9 +129,103 @@ def call_model_with_fallback(messages, primary_model):
                 logger.warning(f"{full} err: {e}"); continue
     return "❌ Нейросеть временно недоступна. Повторите попытку позже."
 
-# ---------------------------
-#  DB HELPERS
-# ---------------------------
+# ===== ФАЙЛОВЫЕ ОПЕРАЦИИ =====
+def extract_zip_and_read(zip_file: UploadFile):
+    temp_dir = tempfile.mkdtemp()
+    zip_path = os.path.join(temp_dir, "uploaded.zip")
+    with open(zip_path, "wb") as f:
+        shutil.copyfileobj(zip_file.file, f)
+    files_data = {}
+    try:
+        with zipfile.ZipFile(zip_path) as z:
+            z.extractall(temp_dir)
+    except zipfile.BadZipFile:
+        return {"error": "not_a_zip"}
+    for root, _, files in os.walk(temp_dir):
+        for fn in files:
+            if fn == "uploaded.zip": continue
+            p = os.path.join(root, fn)
+            rel = os.path.relpath(p, temp_dir)
+            try:
+                with open(p, encoding="utf-8") as f:
+                    files_data[rel] = f.read()
+            except UnicodeDecodeError:
+                continue
+    return files_data
+
+def parse_files_from_ai(content: str) -> dict:
+    files = {}
+    current_path = None
+    buffer = []
+    for line in content.splitlines():
+        if line.startswith("--- ") and line.endswith(" ---"):
+            if current_path:
+                files[current_path] = "\n".join(buffer)
+            current_path = line[4:-4].strip()
+            buffer = []
+        elif current_path:
+            buffer.append(line)
+    if current_path:
+        files[current_path] = "\n".join(buffer)
+    return files
+
+def create_fixed_zip(fixed_files: dict):
+    d = tempfile.mkdtemp()
+    zp = os.path.join(d, "fixed_project.zip")
+    with zipfile.ZipFile(zp, "w") as zf:
+        for path, content in fixed_files.items():
+            full = os.path.join(d, path)
+            os.makedirs(os.path.dirname(full), exist_ok=True)
+            with open(full, "w", encoding="utf-8") as f:
+                f.write(content)
+            zf.write(full, arcname=path)
+    return zp
+
+# ===== ДЕПЛОЙ =====
+def deploy_to_ftp(config: dict, files: dict):
+    ftp = ftplib.FTP()
+    ftp.connect(config["host"])
+    ftp.login(config["username"], config["password"])
+    for path, content in files.items():
+        dirs = os.path.dirname(path)
+        if dirs:
+            try:
+                ftp.mkd(dirs)
+            except:
+                pass
+        with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
+            f.write(content)
+            f.flush()
+            with open(f.name, 'rb') as fp:
+                ftp.storbinary(f'STOR {path}', fp)
+        os.unlink(f.name)
+    ftp.quit()
+    return {"status": "success", "message": f"Загружено {len(files)} файлов на FTP"}
+
+def deploy_to_github(config: dict, files: dict, commit_message="AI-Coder: Auto-fix"):
+    g = Github(config["password"])  # password = GitHub токен
+    repo = g.get_repo(config["repo"])
+    branch = config.get("branch", "main")
+    for path, content in files.items():
+        try:
+            file = repo.get_contents(path, ref=branch)
+            repo.update_file(
+                path=path,
+                message=commit_message,
+                content=content,
+                sha=file.sha,
+                branch=branch
+            )
+        except:
+            repo.create_file(
+                path=path,
+                message=f"AI-Coder: Create {path}",
+                content=content,
+                branch=branch
+            )
+    return {"status": "success", "message": f"Обновлено {len(files)} файлов в GitHub"}
+
+# ===== БД =====
 def save_history(user_id, task, file_names, model_output):
     if not supabase: return
     supabase.table("ai_coder_history").insert({
@@ -205,15 +253,11 @@ def load_messages(user_id, limit=10):
         .execute()
     return [{"role": i["role"], "content": i["content"]} for i in data.data]
 
-# ---------------------------
-#  ROUTES
-# ---------------------------
+# ===== РОУТЫ =====
 @router.get("/admin/ai-coder")
 async def ai_coder_page(request: Request, user_id: str | None = None):
     uid = user_id or str(uuid.uuid4())
-    # Загружаем последние сообщения
     history = load_messages(uid, limit=10)
-    # Преобразуем для отображения в чате
     chat_history = []
     for msg in history:
         role = msg["role"]
@@ -244,7 +288,6 @@ async def ai_coder_api(
         uid = user_id or str(uuid.uuid4())
         selected_model = model if model in AVAILABLE_MODELS else AVAILABLE_MODELS[0]
 
-        # Сбор контекста из файлов
         context_content = ""
         file_names = []
         zip_contents = {}
@@ -262,41 +305,190 @@ async def ai_coder_api(
                     context_content += f"--- {path} ---\n{content}\n\n"
                     file_names.append(path)
 
-        # Формируем полное сообщение
         full_content = f"User ID: {uid}\nTask: {task}\n\n{context_content}\n\nИсправь ошибки, оптимизируй код и верни исправленные файлы в формате:\n--- path/to/file.py ---\n<исправленный код>"
-        messages = [
-            {"role": "user", "content": full_content}
-        ]
+        messages = [{"role": "user", "content": full_content}]
 
-        # Вызываем AI с fallback
         ai_response = call_model_with_fallback(messages, selected_model)
 
         if not ai_response or ai_response.startswith("❌"):
             return JSONResponse({"error": ai_response or "AI failed to respond"}, status_code=503)
 
-        # Сохраняем в БД
         save_message(uid, "user", full_content)
         save_message(uid, "assistant", ai_response)
         save_history(uid, task, ", ".join(file_names), ai_response)
 
-        # Генерация ZIP с исправленными файлами
         fixed_files = parse_files_from_ai(ai_response)
         download_url = None
+        history_id = None
         if fixed_files:
             fixed_zip_path = create_fixed_zip(fixed_files)
             download_url = f"/admin/ai-coder/download?path={fixed_zip_path}"
+            # Сохраняем ID последней записи истории для деплоя
+            hist_res = supabase.table("ai_coder_history") \
+                .select("id") \
+                .eq("user_id", uid) \
+                .order("created_at", desc=True) \
+                .limit(1) \
+                .execute()
+            if hist_res.data:
+                history_id = hist_res.data[0]["id"]
 
         return JSONResponse({
             "result": ai_response,
             "download_url": download_url,
-            "user_id": uid
+            "user_id": uid,
+            "history_id": history_id
         })
 
     except Exception as e:
         logger.exception("Error in ai_coder_api")
         return JSONResponse({"error": f"Server error: {e}"}, status_code=500)
 
-# ========== DOWNLOAD ==========
+# ===== ДЕПЛОЙ КОНФИГУРАЦИЯ =====
+@router.post("/admin/ai-coder/deploy/config")
+async def save_deploy_config(
+    request: Request,
+    user_id: str = Form(...),
+    provider: str = Form(...),
+    host: str = Form(None),
+    username: str = Form(None),
+    password: str = Form(None),
+    repo: str = Form(None),
+    branch: str = Form("main"),
+    path: str = Form("/")
+):
+    try:
+        existing = supabase.table("ai_coder_deploy_configs") \
+            .select("*") \
+            .eq("user_id", user_id) \
+            .execute()
+        
+        data = {
+            "user_id": user_id,
+            "provider": provider,
+            "host": host,
+            "username": username,
+            "repo": repo,
+            "branch": branch,
+            "path": path
+        }
+        if password:
+            data["password"] = encrypt_password(password)
+        
+        if existing.data:
+            supabase.table("ai_coder_deploy_configs") \
+                .update(data) \
+                .eq("user_id", user_id) \
+                .execute()
+        else:
+            supabase.table("ai_coder_deploy_configs") \
+                .insert(data) \
+                .execute()
+        
+        return JSONResponse({"status": "ok", "message": "Конфигурация сохранена"})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@router.get("/admin/ai-coder/deploy/config/{user_id}")
+async def get_deploy_config(user_id: str):
+    if not supabase:
+        return JSONResponse({"error": "Supabase не настроен"}, status_code=500)
+    data = supabase.table("ai_coder_deploy_configs") \
+        .select("*") \
+        .eq("user_id", user_id) \
+        .limit(1) \
+        .execute()
+    if data.data:
+        config = data.data[0]
+        if config.get("password"):
+            config["password"] = decrypt_password(config["password"])
+        return JSONResponse(config)
+    return JSONResponse({"error": "Конфигурация не найдена"}, status_code=404)
+
+# ===== ВЫПОЛНЕНИЕ ДЕПЛОЯ =====
+@router.post("/admin/ai-coder/deploy")
+async def execute_deploy(
+    request: Request,
+    user_id: str = Form(...),
+    history_id: str = Form(None),
+    provider: str = Form(None),
+    host: str = Form(None),
+    username: str = Form(None),
+    password: str = Form(None),
+    repo: str = Form(None),
+    branch: str = Form("main"),
+    path: str = Form("/")
+):
+    try:
+        # 1. Получаем конфигурацию
+        if provider:
+            config = {
+                "provider": provider,
+                "host": host,
+                "username": username,
+                "password": password,
+                "repo": repo,
+                "branch": branch,
+                "path": path
+            }
+        else:
+            config_res = supabase.table("ai_coder_deploy_configs") \
+                .select("*") \
+                .eq("user_id", user_id) \
+                .limit(1) \
+                .execute()
+            config = config_res.data[0] if config_res.data else None
+            if config and config.get("password"):
+                config["password"] = decrypt_password(config["password"])
+
+        if not config:
+            return JSONResponse({"error": "Не найдена конфигурация деплоя"}, status_code=404)
+
+        # 2. Получаем последний ответ AI
+        if history_id:
+            hist_res = supabase.table("ai_coder_history") \
+                .select("*") \
+                .eq("id", history_id) \
+                .single() \
+                .execute()
+            history = hist_res.data
+        else:
+            hist_res = supabase.table("ai_coder_history") \
+                .select("*") \
+                .eq("user_id", user_id) \
+                .order("created_at", desc=True) \
+                .limit(1) \
+                .execute()
+            history = hist_res.data[0] if hist_res.data else None
+
+        if not history:
+            return JSONResponse({"error": "Не найдена история для деплоя"}, status_code=404)
+
+        files = parse_files_from_ai(history["model_output"])
+        if not files:
+            return JSONResponse({"error": "Не найдены файлы в ответе AI"}, status_code=400)
+
+        # 3. Выполняем деплой
+        if config["provider"] == "ftp":
+            result = deploy_to_ftp(config, files)
+        elif config["provider"] == "github":
+            result = deploy_to_github(config, files)
+        else:
+            return JSONResponse({"error": f"Неподдерживаемый провайдер: {config['provider']}"}, status_code=400)
+
+        supabase.table("ai_coder_deploy_tasks").insert({
+            "user_id": user_id,
+            "status": "success",
+            "result": result["message"]
+        }).execute()
+
+        return JSONResponse(result)
+
+    except Exception as e:
+        logger.exception("Deploy error")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+# ===== СКАЧИВАНИЕ ZIP =====
 ALLOWED_DIR = tempfile.gettempdir()
 
 @router.get("/admin/ai-coder/download", response_class=FileResponse)
@@ -306,12 +498,16 @@ async def download_file(path: str):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     return FileResponse(abs_path, filename="fixed_project.zip", media_type="application/zip")
 
-# ========== HISTORY ==========
+# ===== ИСТОРИЯ =====
 @router.get("/admin/ai-coder/history/{user_id}")
 async def ai_coder_history(request: Request, user_id: str):
     if not supabase:
         return {"error": "Supabase не настроен"}
-    data = supabase.table("ai_coder_history").select("*").eq("user_id", user_id).order("created_at", desc=True).execute()
+    data = supabase.table("ai_coder_history") \
+        .select("*") \
+        .eq("user_id", user_id) \
+        .order("created_at", desc=True) \
+        .execute()
     items = data.data
     return templates.TemplateResponse("ai_coder_history.html", {
         "request": request,
@@ -323,7 +519,11 @@ async def ai_coder_history(request: Request, user_id: str):
 async def ai_coder_history_item(request: Request, item_id: str):
     if not supabase:
         return {"error": "Supabase не настроен"}
-    data = supabase.table("ai_coder_history").select("*").eq("id", item_id).single().execute()
+    data = supabase.table("ai_coder_history") \
+        .select("*") \
+        .eq("id", item_id) \
+        .single() \
+        .execute()
     return templates.TemplateResponse("ai_coder_history_item.html", {
         "request": request,
         "item": data.data
