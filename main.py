@@ -6,11 +6,8 @@ from ai_coder.router import router as ai_coder_router
 
 app = FastAPI(title="KVG AI Coder")
 
-# Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
-
-# Include router
-app.include_router(ai_coder_router, prefix="")
+app.include_router(ai_coder_router)
 
 @app.get("/")
 async def root():
