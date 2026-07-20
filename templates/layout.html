@@ -6,19 +6,8 @@
     <title>KVG AI Coder</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="/static/ai_coder.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.3.0/marked.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
-    <style>
-        .chat-window { scrollbar-width: thin; }
-    </style>
 </head>
 <body class="bg-zinc-950 text-zinc-100">
-    <div class="flex h-screen overflow-hidden">
-        {% block content %}{% endblock %}
-    </div>
-    <script>
-        hljs.highlightAll();
-    </script>
+    {% block content %}{% endblock %}
 </body>
 </html>
