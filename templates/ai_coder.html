@@ -1,12 +1,48 @@
 {% extends "layout.html" %}
 {% block content %}
-<div class="p-8">
-    <h1 class="text-3xl font-bold">KVG AI Coder</h1>
-    <p class="mt-4">User ID: {{ user_id }}</p>
-    <p class="mt-8 text-green-400">✅ Page loaded successfully!</p>
-    
-    <div class="mt-8">
-        <a href="/admin/ai-coder" class="bg-blue-600 px-6 py-3 rounded-xl">Reload</a>
+<div class="flex h-screen">
+    <!-- Sidebar -->
+    <div class="w-72 bg-zinc-900 border-r border-zinc-800 p-4 flex flex-col">
+        <h1 class="text-2xl font-bold mb-8">AI Coder</h1>
+        <button onclick="location.reload()" class="bg-blue-600 hover:bg-blue-700 py-3 rounded-2xl mb-6">
+            Новый чат
+        </button>
+        <div class="text-sm text-zinc-400">User: {{ user_id[:8] }}...</div>
+    </div>
+
+    <!-- Main Chat -->
+    <div class="flex-1 flex flex-col">
+        <div class="h-14 border-b border-zinc-800 flex items-center px-6 bg-zinc-900">
+            <h2 class="font-medium">Чат с AI Coder</h2>
+        </div>
+        
+        <div class="flex-1 p-8 overflow-auto" id="chat-window">
+            <p class="text-zinc-400">Привет! Опиши задачу или загрузи файл/ZIP.</p>
+        </div>
+
+        <div class="p-6 border-t border-zinc-800 bg-zinc-900">
+            <form id="chat-form">
+                <textarea id="task-input" class="w-full bg-zinc-800 border border-zinc-700 rounded-3xl p-6" rows="3" placeholder="Например: исправь ошибки в коде..."></textarea>
+                <button type="submit" class="mt-4 bg-blue-600 hover:bg-blue-700 px-8 py-3 rounded-2xl">Отправить</button>
+            </form>
+        </div>
     </div>
 </div>
+
+<script>
+document.getElementById('chat-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const task = document.getElementById('task-input').value;
+    if (!task) return;
+
+    const res = await fetch('/admin/ai-coder/api', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: new URLSearchParams({ task: task })
+    });
+    const data = await res.json();
+    
+    alert("Ответ от AI:\n" + data.result);
+});
+</script>
 {% endblock %}
