@@ -48,19 +48,15 @@ templates = Jinja2Templates(directory="templates")
 #  Модели (с префиксами провайдеров)
 # ---------------------------
 AVAILABLE_MODELS = [
-    # OpenRouter (бесплатные)
+    # OpenRouter
     "openrouter:google/gemma-4-26b-a4b-it:free",
     "openrouter:tencent/hy3:free",
     "openrouter:qwen/qwen3-coder:free",
     "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free",
-    "openrouter:meta-llama/llama-3.3-70b-instruct:free",
-    "openrouter:microsoft/phi-3-mini-128k-instruct:free",
-    "openrouter:mistralai/mistral-7b-instruct:free",
-    # Groq (бесплатные)
-    "groq:llama-3.1-8b-instant",
-    "groq:mixtral-8x7b-32768",
+    # Groq (если доступен)
+    "groq:qwen/qwen3-32b",
     "groq:llama-3.3-70b-versatile",
-    "groq:gemma2-9b-it",
+    "groq:mixtral-8x7b-32768",
 ]
 
 # ---------------------------
@@ -90,8 +86,10 @@ def call_groq(model: str, messages: list, timeout: int = 15):
     if not groq_client:
         raise Exception("Groq client not available")
     
+    # Преобразуем messages в формат Groq
     groq_messages = [{"role": m["role"], "content": m["content"]} for m in messages]
     
+    # Для Groq нужен stream=False для таймаута, используем синхронный вызов
     completion = groq_client.chat.completions.create(
         model=model,
         messages=groq_messages,
@@ -108,31 +106,36 @@ def call_groq(model: str, messages: list, timeout: int = 15):
 #  Основная функция с fallback
 # ---------------------------
 def call_model_with_fallback(messages, primary_model):
-    # Строим список моделей: сначала выбранная пользователем,
-    # затем все из AVAILABLE_MODELS (без дубликатов),
-    # в конце платная fallback-модель OpenRouter
-    base_models = [primary_model] + AVAILABLE_MODELS
-    # Добавляем платную модель, если её нет в списке
-    paid_fallback = "openrouter:google/gemma-4-26b-a4b-it"  # платная версия
-    if paid_fallback not in base_models:
-        base_models.append(paid_fallback)
-    
+    # Список моделей с приоритетом: сначала выбранная пользователем
     # Убираем дубликаты, сохраняя порядок
+    MODELS = [
+        primary_model,
+        "openrouter:qwen/qwen3-coder:free",
+        "openrouter:tencent/hy3:free",
+        "openrouter:google/gemma-4-26b-a4b-it:free",
+        "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free",
+        "groq:qwen/qwen3-32b",
+        "groq:llama-3.3-70b-versatile",
+        "groq:mixtral-8x7b-32768",
+        "openrouter:google/gemma-4-26b-a4b-it",  # платная fallback
+    ]
+    # Убираем дубликаты
     seen = set()
     unique_models = []
-    for m in base_models:
+    for m in MODELS:
         if m not in seen:
             seen.add(m)
             unique_models.append(m)
 
     max_attempts = 2
-    timeout = 15
+    timeout = 15  # секунд на один запрос
 
     for attempt in range(max_attempts):
         logger.info(f"Attempt {attempt + 1}/{max_attempts}")
 
         for full_model in unique_models:
             try:
+                # Разбираем провайдер и модель
                 if ":" in full_model:
                     provider, model_name = full_model.split(":", 1)
                 else:
@@ -166,23 +169,14 @@ def call_model_with_fallback(messages, primary_model):
                 logger.warning(f"Model {full_model} timeout ({timeout}s), trying next")
                 continue
             except requests.exceptions.RequestException as e:
-                # Обработка HTTP-ошибок
-                if hasattr(e, 'response') and e.response is not None:
-                    status = e.response.status_code
-                    if status == 429:
-                        logger.warning(f"Model {full_model} rate limited (429), trying next")
-                        continue
-                    elif status == 413:
-                        logger.warning(f"Model {full_model} payload too large (413), trying next")
-                        continue
-                logger.warning(f"Model {full_model} request error: {e}, trying next")
-                continue
-            except Exception as e:
-                # Проверяем текст ошибки на 413 (например, от Groq)
-                error_str = str(e)
-                if "413" in error_str or "Payload Too Large" in error_str:
-                    logger.warning(f"Model {full_model} payload too large, trying next")
+                # Проверяем, если это 429 (Too Many Requests)
+                if hasattr(e, 'response') and e.response is not None and e.response.status_code == 429:
+                    logger.warning(f"Model {full_model} rate limited (429), trying next")
                     continue
+                else:
+                    logger.warning(f"Model {full_model} request error: {e}, trying next")
+                    continue
+            except Exception as e:
                 logger.warning(f"Model {full_model} unexpected error: {e}, trying next")
                 continue
 

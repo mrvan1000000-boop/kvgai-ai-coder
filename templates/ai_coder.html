@@ -290,7 +290,7 @@
 
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 20000);
+            const timeoutId = setTimeout(() => controller.abort(), 190000);
 
             const response = await fetch('/admin/ai-coder/api', {
                 method: 'POST',
@@ -336,7 +336,7 @@
         } catch (error) {
             removeTypingIndicator();
             if (error.name === 'AbortError') {
-                addMessage('system', '⏱️ Превышено время ожидания ответа от сервера (20 сек).');
+                addMessage('system', '⏱️ Превышено время ожидания ответа от сервера (190 сек).');
             } else {
                 addMessage('system', '❌ Ошибка: ' + error.message);
             }
